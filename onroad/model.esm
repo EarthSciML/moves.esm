@@ -1850,7 +1850,10 @@
       "PetroleumEnergyConsumption": 92,
       "FossilFuelEnergyConsumption": 93,
       "OxidesOfNitrogen": 3,
-      "TotalHydrocarbons": 1
+      "TotalHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "ElementalCarbon": 112,
+      "CompositeNonECPM": 118
     },
     "process": {
       "RunningExhaust": 1,
@@ -1995,6 +1998,7 @@
           "only": [
             "model_year_in_range",
             "row_is_present",
+            "input_row_or_default",
             "latest_at_or_before_key",
             "flat_relation_major",
             "flat_relation_minor"
@@ -9154,7 +9158,7 @@
           "shape": [
             "emissionratebyage_rows"
           ],
-          "description": "emissionratebyage.meanBaseRate at that age group, grams per source-hour at this operating mode.",
+          "description": "emissionratebyage.meanBaseRate at that age group, grams per source-hour at this operating mode. The DEFAULT database's value; the rate read is `erba_mergedMeanBaseRate`, the row merge with a user input database's emissionRateByAge (PLAN.md §7.3.82).",
           "update": {
             "kind": "data",
             "source": "db_emissionratebyage",
@@ -17958,7 +17962,7 @@
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows."
+          "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows. It reads the MERGED rate (`erba_mergedMeanBaseRate`): a user input database's emissionRateByAge -- MOVES 5's LEV and NLEV tables -- replaces the default row at its key (PLAN.md §7.3.82)."
         },
         "rtMode_fullACAdjustment": {
           "type": "unknown",
@@ -26675,7 +26679,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many emissionRateByAge rows the RunSpec's user input databases state (`db_input_emissionratebyage`): 0 in every catalogue that declares no user database."
+          "description": "How many emissionRateByAge rows the RunSpec's user input databases state (`db_input_emissionratebyage`): 0 in every catalogue that declares no user database. `userdb-lev` and `rates-lev`: 48,657."
         },
         "run_levUnported": {
           "type": "unknown",
@@ -26683,7 +26687,47 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Every emissionRateByAge row a user input database states (`run_inputRateByAgeRows`), counted by `run_selectionUnported` (PLAN.md §7.3.82). MOVES 5's LEV and NLEV programs are not run-time strategies: the GUI tools BuildLEVAction and BuildNLEVAction run database/LEV_NLEVScripts/MOVES5_MyLEVS_Template.sql (the default's emissionRateByAgeLEV at ten pollutant-processes and the model-year groups the user keeps, `mid(sourceBinID,8,2)`) or MOVES5_MyNLEVS.sql (every emissionRateByAgeNLEV row) into a database holding ONE table, emissionRateByAge, which the user adds to `<databaseselections>`. MasterLoop merges every user database BEFORE the default database, and InputDataManager copies every table with INSERT IGNORE, so a user row REPLACES the default row at its key. Until the merge is ported the model reads the default rates alone, so a LEV run would emit the un-LEV inventory, silently: it refuses instead."
+          "description": "What of a user input database's emissionRateByAge no capture checks, counted by `run_selectionUnported` (PLAN.md §7.3.82): its rows at a pollutant-process other than the LEV tool's ten (`run_inputRateByAgeOtherRows`) and its rows whose key the default lacks (`run_inputRateByAgeRowsAdded`). MOVES 5's LEV and NLEV programs are not run-time strategies: the GUI tools BuildLEVAction and BuildNLEVAction run database/LEV_NLEVScripts/MOVES5_MyLEVS_Template.sql (emissionRateByAgeLEV at ten pollutant-processes and the model-year groups the user keeps, `mid(sourceBinID,8,2)`) or MOVES5_MyNLEVS.sql (every emissionRateByAgeNLEV row) into a database holding ONE table, emissionRateByAge, which the user adds to `<databaseselections>`; MasterLoop merges it before the default database with INSERT IGNORE, so its rows replace the default rows at their keys. That merge is ported (`erba_mergedMeanBaseRate`) and checked by `userdb-lev` (Inventory) and `rates-lev` (Rates). Before it, this counted every user row: the model read the default rates alone and a LEV run emitted the un-LEV inventory, silently."
+        },
+        "erba_inputRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "How many rows of a USER input database's emissionRateByAge (`db_input_emissionratebyage`) share this default row's whole primary key -- sourceBinID, polProcessID, opModeID, ageGroupID: 0 or 1. MasterLoop.java:206-250 merges every `<databaseselection>` (last-listed first) and then the domain database BEFORE the default database, and InputDataManager copies every table with INSERT IGNORE (DatabaseUtilities.copyTable), so a matching user row SHADOWS this one (PLAN.md §7.3.82)."
+        },
+        "erba_inputMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The shadowing user row's meanBaseRate, 0 where there is none."
+        },
+        "erba_mergedMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "THE ROW MERGE of emissionRateByAge (`input_row_or_default`, docs/esm-conventions.md §133): the user input database's meanBaseRate where it states this row's key, the default's otherwise. It is what MOVES 5's LEV and NLEV programs ARE at run time -- the LEV tool's database holds emissionRateByAgeLEV's rows at the model-year groups the user kept, the NLEV tool's every emissionRateByAgeNLEV row, and every one of those keys is a default key (92,274 and 7,812 of them, measured), so the merge replaces values and adds no row. Reproduced against `userdb-lev`'s execution database: all 1,384,677 rows at its pollutant-processes exact, 48,657 of them the user's (PLAN.md §7.3.82). Every catalogue without a user database mounts the input side empty, so this is the default value itself."
+        },
+        "run_inputRateByAgeOtherRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "User emissionRateByAge rows at a pollutant-process other than the ten the LEV tool copies and `userdb-lev` and `rates-lev` check -- THC, CO, NOx, elemental carbon and composite non-EC PM at running and start exhaust (MOVES5_MyLEVS_Template.sql's `polprocessid in (101,201,301,102,202,302,11201,11202,11801,11802)`; the NLEV table holds six of them). The default table also carries the evaporative 111-113 and NH3 3001/3002 rows, which a hand-made user table could shadow."
+        },
+        "run_inputRateByAgeRowsAdded": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "User emissionRateByAge rows whose key the default table lacks: the merge would ADD them, and `erba_mergedMeanBaseRate`, on the default side's axis, cannot see them (docs/esm-conventions.md §93). The LEV and NLEV tables add none (every one of their keys is a default key); a hand-made table could."
         }
       },
       "equations": [
@@ -72113,7 +72157,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "erba_meanBaseRate",
+                "erba_mergedMeanBaseRate",
                 "a"
               ]
             }
@@ -111326,25 +111370,14 @@
         {
           "lhs": "zrt_mergedSHOAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zrt_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zrt_inputSHOAllocFactor",
-              "zrt_SHOAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zrt_inputRowCount",
+              "input_value": "zrt_inputSHOAllocFactor",
+              "default_value": "zrt_SHOAllocFactor"
+            }
           }
         },
         {
@@ -124852,25 +124885,14 @@
         {
           "lhs": "zn_mergedStartAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zn_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zn_inputStartAllocFactor",
-              "zn_startAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zn_inputRowCount",
+              "input_value": "zn_inputStartAllocFactor",
+              "default_value": "zn_startAllocFactor"
+            }
           }
         },
         {
@@ -124912,25 +124934,14 @@
         {
           "lhs": "zn_mergedSHPAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zn_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zn_inputSHPAllocFactor",
-              "zn_SHPAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zn_inputRowCount",
+              "input_value": "zn_inputSHPAllocFactor",
+              "default_value": "zn_SHPAllocFactor"
+            }
           }
         },
         {
@@ -131372,6 +131383,131 @@
         {
           "lhs": "run_levUnported",
           "rhs": {
+            "op": "+",
+            "args": [
+              {
+                "op": "index",
+                "args": [
+                  "run_inputRateByAgeOtherRows",
+                  "n"
+                ]
+              },
+              {
+                "op": "index",
+                "args": [
+                  "run_inputRateByAgeRowsAdded",
+                  "n"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "erba_inputRowCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "erba_sourceBinID",
+                    "erbai_sourceBinID"
+                  ],
+                  [
+                    "erba_polProcessID",
+                    "erbai_polProcessID"
+                  ],
+                  [
+                    "erba_opModeID",
+                    "erbai_opModeID"
+                  ],
+                  [
+                    "erba_ageGroupID",
+                    "erbai_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "erba_inputMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "erba_sourceBinID",
+                    "erbai_sourceBinID"
+                  ],
+                  [
+                    "erba_polProcessID",
+                    "erbai_polProcessID"
+                  ],
+                  [
+                    "erba_opModeID",
+                    "erbai_opModeID"
+                  ],
+                  [
+                    "erba_ageGroupID",
+                    "erbai_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "erbai_meanBaseRate",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "erba_mergedMeanBaseRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "erba_inputRowCount",
+              "input_value": "erba_inputMeanBaseRate",
+              "default_value": "erba_meanBaseRate"
+            }
+          }
+        },
+        {
+          "lhs": "run_inputRateByAgeOtherRows",
+          "rhs": {
             "op": "faq",
             "args": [],
             "semiring": "sum_product",
@@ -131381,15 +131517,297 @@
             "ranges": {
               "n": {
                 "from": "run_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
               }
             },
             "expr": {
-              "op": "index",
+              "op": "ifelse",
               "args": [
-                "run_inputRateByAgeRows",
-                "n"
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "pollutant_id_of",
+                                          "bindings": {
+                                            "pol_process_id": {
+                                              "op": "index",
+                                              "args": [
+                                                "erbai_polProcessID",
+                                                "u"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "pollutant",
+                                            "TotalHydrocarbons"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "pollutant_id_of",
+                                          "bindings": {
+                                            "pol_process_id": {
+                                              "op": "index",
+                                              "args": [
+                                                "erbai_polProcessID",
+                                                "u"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "pollutant",
+                                            "CarbonMonoxide"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "pollutant_id_of",
+                                      "bindings": {
+                                        "pol_process_id": {
+                                          "op": "index",
+                                          "args": [
+                                            "erbai_polProcessID",
+                                            "u"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "pollutant",
+                                        "OxidesOfNitrogen"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "pollutant_id_of",
+                                  "bindings": {
+                                    "pol_process_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "erbai_polProcessID",
+                                        "u"
+                                      ]
+                                    }
+                                  }
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "pollutant",
+                                    "ElementalCarbon"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "pollutant_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "pollutant",
+                                "CompositeNonECPM"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "process_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "RunningExhaust"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "process_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "StartExhaust"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.0,
+                1.0
               ]
             }
+          }
+        },
+        {
+          "lhs": "run_inputRateByAgeRowsAdded",
+          "rhs": {
+            "op": "-",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "u": {
+                    "from": "inputemissionratebyage_rows"
+                  }
+                },
+                "expr": 1.0
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "a": {
+                    "from": "emissionratebyage_rows"
+                  },
+                  "u": {
+                    "from": "inputemissionratebyage_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "erba_sourceBinID",
+                        "erbai_sourceBinID"
+                      ],
+                      [
+                        "erba_polProcessID",
+                        "erbai_polProcessID"
+                      ],
+                      [
+                        "erba_opModeID",
+                        "erbai_opModeID"
+                      ],
+                      [
+                        "erba_ageGroupID",
+                        "erbai_ageGroupID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            ]
           }
         }
       ]

@@ -1,0 +1,365 @@
+{
+  "esm": "1.2.0",
+  "metadata": {
+    "name": "rates-lev-runspec",
+    "description": "PLAN.md §7.3.79: `rates-retrofit`, the Rates-scale run of the On-Road Retrofit port -- THC, CO, NMHC and the PM2.5 total with EC, NonECPM, sulfate and aerosol water at running and start exhaust, for the single-unit short-haul truck (52) and the combination long-haul truck (62), every fuel MOVES adds, in Washtenaw County, DEFAULT domain, August 2020, weekday, hour 7, at `<modelscale value=\"Rates\"/>`, from the default database plus a USER INPUT DATABASE holding thirteen On-Road Retrofit programs (`inputs/washtenaw-userdb-retrofit.esm`).\n\nWHAT IT DISCRIMINATES. OnRoadRetrofitStrategy.buildSQL updates BaseRateOutput (emissionRate, meanBaseRate) beside MOVESWorkerOutput, and RatePostProcessorRatesFirst.sql writes the rate tables from BaseRateOutput, so the factor reaches RatePerDistance through `rtRate_total` and RatePerStart through `rto_ratePerActivity`; RatePerVehicle is MOVESOutput over the population, `out_emissionQuant` through `rtDay_quant`. Measured before porting against the un-retrofitted twin `rates-retrofit-base` (moves.rs, not wired here): 69,615 nonzero RatePerDistance cells, 1,071 RatePerStart and 1,071 RatePerVehicle cells are the twin's times the predicted factor within 9.9e-06, and no child pollutant moves.\n\nWHAT IT REPRODUCES (PLAN.md §7.3.80, finding F91 fixed): every table, key set exact, no `cell_exception` -- RatePerDistance 79,560 of 79,560 (worst cell 6.5e-06), RatePerStart 1,224 of 1,224 (4.8e-06), RatePerVehicle 1,224 of 1,224 (1.1e-05), StartsPerVehicle 160 of 160 (8.1e-06), RatePerHour and RatePerProfile empty in both. Every cohort here but CNG has two to four regulatory classes (41, 42, 46, 47 on 52; 46, 47, 49 on 62), and every Rates capture before it selected the single-class gasoline passenger car on the per-speed-bin path: its RatePerDistance on road types 2-5 was 1.9x to 112x high (52,864 cells) until each class's per-bin rate took its share of the cohort (`rt_regClassRateShare`, BaseRateCalculator's `smfrRatesFraction`). Its un-retrofitted twin is `rates-retrofit-base`.\n\nTHE BINDINGS. `n_ratesScale` = 1 and `n_outputRate`, the (pollutant-process, road type, cohort) pairs across five road types, checked by `rateSurvivorCount`.",
+    "authors": [
+      "EarthSciML Authors and Contributors"
+    ],
+    "tags": [
+      "runspec",
+      "onroad",
+      "default-database",
+      "rates",
+      "user-input-database",
+      "lev"
+    ]
+  },
+  "data_sources": {
+    "db_runspecyear": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecyear.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecyear"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, yearID 2020: ages 0-40 are model years 1980-2020, so the run holds cohorts at LEV rates (1999-2003, 2010-2017) and at default rates on both sides of each kept band (1980-1998, 2004-2009, 2018-2020).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecmonth": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecmonth.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecmonth"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, monthID 8.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspechour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspechour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourID 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_aggregationhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechour.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_aggregationhour"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The hours the run aggregates over: `runspechour` itself (no `aggregateBy`).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspechourday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, hourDayID 75: the weekday at hour 7.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_rateday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the RATE-side time pre-aggregation is scoped to: `runspecday` itself.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_actday": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecday.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_actday"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "The day types the output day's ACTIVITY covers: `runspecday` itself.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcetype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcetype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcetype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "3 rows, sourceTypeIDs 21, 31 and 32.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecroadtype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecroadtype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecroadtype"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "5 rows, road types 1 to 5. The RunSpec selects 1 and 5; MOVES adds 2, 3 and 4 because off-network idle needs their SHO (conventions §102).",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecsourcefueltype": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecsourcefueltype.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecsourcefueltype"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "cohorts"
+        ],
+        "note": "12 rows: 21, 31 and 32 each with gasoline, diesel, E85 and electricity -- MOVES adds the fuels the RunSpec does not name. The LEV table has gasoline, diesel and E85 rows; electricity reads no emissionRateByAge row.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecpollutantprocess": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecpollutantprocess.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecpollutantprocess"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "18 rows: THC, CO, NOx, NMHC, the PM2.5 total, EC, sulfate, NonECPM and aerosol water, each at running (x01) and start (x02) exhaust. Ten of them -- THC, CO, NOx, EC and NonECPM -- read emissionRateByAge, and are the ten the LEV template copies.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspecchainedto": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspecchainedto.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspecchainedto"
+      },
+      "metadata": {
+        "tags": [
+          "scope",
+          "chain"
+        ],
+        "note": "14 rows: NMHC from THC; the PM2.5 total from EC and NonECPM; sulfate and aerosol water from NonECPM; NonECPM's own sulfate/water edges. Every chained pollutant is computed FROM a LEV-rated parent, which is how the LEV rows reach it.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_runspeccounty": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__movesexecution1ccc0236_campuscluster_illinois_edu__runspeccounty.parquet"
+      },
+      "extent": {
+        "metaparameter": "n_runspeccounty"
+      },
+      "metadata": {
+        "tags": [
+          "scope"
+        ],
+        "note": "1 row, countyID 26161, Washtenaw.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperdistance": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__rateperdistance.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerDistance",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 79,560-row RatePerDistance: running exhaust on road types 2 to 5 at 16 speed bins and one row per cohort at road type 1. The retrofit programs' rows are the un-retrofitted run's times their factor.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperstart": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__rateperstart.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerStart",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 1,224-row RatePerStart: start exhaust per start, the retrofit programs' rows times their factor.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperhour": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__rateperhour.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerHour",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_ratepervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__ratepervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "The 1,224-row RatePerVehicle: start exhaust per vehicle, MOVESOutput over the population.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_rateperprofile": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__rateperprofile.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "ratePerVehicle",
+          "temperature",
+          "relHumidity"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "EMPTY in this run: MOVES writes no row to it, so a row the model emits here is a failure.",
+        "esio_format": "parquet"
+      }
+    },
+    "db_startspervehicle": {
+      "kind": "static",
+      "source": {
+        "url_template": "../../moves.rs/characterization/snapshots/rates-lev/tables/db__out_rates_lev__startspervehicle.parquet"
+      },
+      "reader_options": {
+        "float_columns": [
+          "startsPerVehicle"
+        ]
+      },
+      "metadata": {
+        "tags": [
+          "oracle",
+          "expected-output"
+        ],
+        "note": "160 rows: starts per vehicle, which no retrofit factor reaches.",
+        "esio_format": "parquet"
+      }
+    }
+  },
+  "models": {
+    "Onroad": {
+      "ref": "../inputs/washtenaw-userdb-lev.esm",
+      "bindings": {
+        "n_outputRate": 7344,
+        "n_sourceBin": 2,
+        "n_physicsRow": 7,
+        "n_ratesScale": 1
+      }
+    }
+  }
+}
