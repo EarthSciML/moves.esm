@@ -862,6 +862,17 @@ AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV
 (`moves.rs/docs/control-strategies.md`). Deferred deliberately: none of the 39
 fixtures exercises them, so this is scope beyond reproducing the examples.
 
+**Status 2026-11-20: AVFT is ported** (§7.3.78, conventions §129). MOVES 5 runs
+AVFTControlStrategy whenever a county or project database states `avft`, and before
+this a non-default one was silently ignored (F86). `scale-county-avft` (10,188 of
+10,188) and `project-avft` (489 of 489) reproduce, key-exact, no `cell_exception`:
+the rewritten sampleVehiclePopulation (`svp_avftStmyFraction`, both of
+applyNewFraction's branches) behind the source-bin distribution, TankVaporVenting and
+TAG's hotelling split, the EV sales share left on the DEFAULT fleet as MOVES leaves it
+(F87), and ProjectTAG's direct read of avft (F88). Nothing of it is refused; the float
+cast, NATION geography and an empty project avft are recorded there as unreached.
+Rate-of-Progress and LEV are not ported.
+
 **On-Road Retrofit: ported 2026-11-20 (§7.3.79).** A non-empty `onRoadRetrofit` is read
 (`rt_retrofitFactor` on the finished rows), checked by `scale-county-retrofit` and
 `userdb-retrofit-multiyear` and, at Rates scale, `rates-retrofit` (every table since
@@ -1049,9 +1060,9 @@ blocks what.
    road type 1 generated in `moves.rs`, not another slice here. See
    `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
 
-Phase 6 (control strategies) stays deferred: none of the 39 fixtures exercises
-them, so it is scope beyond reproducing the examples. On-Road Retrofit is the
-exception since §7.3.79.
+Phase 6 (control strategies) stayed deferred until 2026-11-20, when AVFT
+(§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures; see
+§3's Phase 6 for its status.
 
 ### 6.1 What the fidelity gate now consists of
 
@@ -8579,6 +8590,125 @@ sources were replaced (F42); `build-esm.sh` builds `esm` from the
 - *Engine planning.* The tvv lane's three asks (§7.3.76): an equality lookup on a
   1-D column as a gather, a 1-D presence mask as a row filter, and a window sum
   over an ordered key as a prefix scan.
+
+#### 7.3.78 Phase 6 begins: AVFT is a rewrite of sampleVehiclePopulation every consumer reads, but not the EV sales share, and ProjectTAG reads the avft itself
+
+2026-11-20. MOVES 5's first control strategy. AVFTControlStrategy (Alternative Vehicle
+Fuels & Technologies) is driven by DATA, not by the RunSpec: MOVESInstantiator.
+addAutomaticInternalControlStrategies (java:1718-1806) instantiates it whenever the
+execution database's `avft` has a row, and `avft` comes from a county or project database
+(InputDataManager copies it filtered to the run's source types; the default database
+ships it empty). Both new runs reproduce, **key set exact, no `cell_exception`:**
+
+| run | selections | rows | worst cell |
+|---|---|---|---|
+| `scale-county-avft` (NEW, SINGLE county, Hour: July, weekday, hour 8) | every fuel of 21 and 32, 62's diesel and electric (MOVES adds its CNG); THC, CO, NOx, Total Energy at running, start, extended idle; THC at vapor venting; PM2.5 brake and tire wear | 10,188 of 10,188 | 9.757e-06 |
+| `project-avft` (NEW, PROJECT, `project-hotelling`'s links) | 21's gasoline, diesel, electric (MOVES adds E85), 62's diesel and electric (and CNG); Total Energy at running, extended idle, APU; NOx at running and extended idle | 489 of 489 | 8.316e-06 |
+
+**What MOVES does, in order** (AVFTMasterLoopable.java, before any generator runs):
+1. `doSetup`: `tableFraction` = sum(stmyFraction) of sampleVehiclePopulation by
+   (sourceTypeModelYearID, fuelTypeID, engTechID) -- over regulatory class -- for the model
+   years of the default `modelYear` table (all of them), read ONCE.
+2. `doDatabaseUpdatesUsingAVFTTable`: every avft row joined to sourceTypeModelYear and
+   runspecModelYear goes to `applyNewFraction` with its fuelEngFraction CAST TO FLOAT.
+   `tableFraction` is never updated, so every row is compared with the DEFAULT fleet.
+3. `applyNewFraction`: no `tableFraction` row for the combination -> ignored. Otherwise
+   `difference = new - old` (old read through `getFloat`): `>= 1e-6` ADD, `UPDATE ... SET
+   stmyFraction = stmyFuelEngFraction * new`; `<= -1e-6` SUBTRACT, `SET stmyFraction =
+   stmyFraction * new / old`; else nothing. The two branches agree wherever old > 0 (the
+   default table's stmyFraction / old equals stmyFuelEngFraction to 1.2e-15); ADD is the
+   only one that can fill a combination whose default share is 0, and it splits it by
+   stmyFuelEngFraction (an electric light commercial truck goes wholly to class 30, whose
+   stmyFuelEngFraction is 1; class 41's is 0).
+4. `ExecutionRunSpec.runUpdateScript`: UpdateExecution.sql rebuilds
+   RegClassSourceTypeFraction from the rewritten table. `doDiagnosticChecks` is empty.
+
+**The captures** (moves.rs branch `capture-avft`, host token `1ccc0236`, moves-snapshot/v2,
+capture binary rebuilt in the lane's scratch; copied into the main checkout's
+`characterization/snapshots/`): `scale-county-avft` (322 MB apparent) is setup-timeagg.sql
+plus `county-inputs/washtenaw-county-avft/setup-avft.sql`, which deletes and restates 32
+avft combinations of 21, 32 and 62 at model years 2010, 2015, 2018 and 2020;
+`project-avft` (106 MB) is setup-project-offnetwork.sql plus the same file. MOVES ran in
+about two minutes each; its log says "Calculate AVFT Control Strategy ... Complete".
+
+**Measured before porting** (pandas, `/scratch.local/ctessum/avft/py/reproduce_svp.py`, off
+each capture's post-run execution database and `movesdb`): the rewritten
+sampleVehiclePopulation from the default table and the execution avft, both branches and
+the float cast, 6,068 of 6,068 rows to 4.0e-08 relative -- the FLOAT column MOVES stores
+it in. `scale-county-avft`: 37 rows rewritten, 18 ADD (four filled from 0: the 2020 diesel car,
+the 2010 electric light truck, both electric long-haul drives of 2020; four more stay 0, their
+class's stmyFuelEngFraction being 0) and 19 SUBTRACT (four emptied to 0); eight restatements within 1e-6 and a 9e-7 electric long-haul share left alone; a
+gasoline long-haul share sampleVehiclePopulation has no row for ignored. `project-avft`: 23
+rows (21 and 62 only). Every other row is the default's, bit for bit. On all 58
+earlier snapshots that carry an avft, the same check: each holds AVFTTool's default
+projection (sampleVehiclePopulation summed over regulatory class, within 2.2e-16) and its
+post-run sampleVehiclePopulation equals the default at every row.
+
+**(1) A non-default avft was SILENT (finding F86).** `onroad/model.esm` never read `avft`.
+On the unported model `scale-county-avft` read `run_domainUnported` 0 and missed its oracle
+by 99 missing and 99 extra keys and pollutant sums 0.2%-1.1% off; with the refusal
+(commit 40ddd3f, the first step) it read `run_avftUnported` 37 -- exactly the rewritten rows.
+
+**(2) The EV sales share reads the DEFAULT fleet (finding F87).** BaseRateGenerator's
+evSalesFraction (the fleet-average EV adjustment) joins `samplevehiclepopulationdefault`,
+InputDataManager's copy of the default database's table made before any input database
+is merged (BaseRateGenerator.java:263-282, InputDataManager.java:2784), at every
+geography but NATION ("AVFT inputs are typically for a specific county"). So an avft
+that moves vehicles into electric drive does not move the national EV share the
+adjustment divides by. `svp_salesWeight` keeps the stored `svp_stmyFraction`.
+
+**(3) ProjectTAG reads the avft itself (finding F88).** Its hotellingHours
+(ProjectTAG.java:440-466) multiply the off-network fleet by `avft.fuelEngFraction`,
+joined on source type and `yearID - ageID` and grouped by avft's fuel type, which
+BaseRateCalculator's `activity=hotellingHours` sums away again. Every avft row counts:
+`project-avft`'s capture holds a GASOLINE hotellingHours row for the long-haul truck at
+model year 2018 (0.17823% of that cohort's hours, the share sampleVehiclePopulation has
+no row for) and an electric one at 9e-7 (inside the threshold, so the strategy left the
+fleet at 0). `hot_projectHours` multiplied by `hot_stmyTotal`, the rewritten fleet's
+total, which equals the avft's sum only for AVFTTool's projection: on this cohort 0.18%
+low.
+
+**What the model does now** (conventions §129; `lib/avft.esm`, onroad/model.esm; hand-written,
+spliced by scratch scripts):
+
+1. **`avft` is mounted** (`db_avft`, `avft_rows`, `n_avft`): from the default database
+   (empty) in every catalogue but the two new ones, which declare the 32 stated rows
+   (`inputs/washtenaw-county-avft.esm`, `inputs/washtenaw-project-avft.esm`, one file
+   written by `tools/build-scale-input-db.py`), and from the snapshot in the two
+   execution-database catalogues (empty: DEFAULT domain). A catalogue whose database
+   states AVFTTool's projection inherits the empty table: the projection is
+   applyNewFraction's own `old`, so its rows and absent rows are the same to the strategy.
+2. **The rewrite**: `svp_fuelEngFraction` (old), `svp_avftStated`, `svp_avftFraction` (new),
+   `svp_avftBranch` (`avft_branch`), and `svp_avftStmyFraction` (`avft_rewritten_fraction`),
+   the stored value bit for bit wherever the branch is 0.
+3. **Rewired**: `bin_stmyFraction` (the source-bin distribution: SourceBinDistributionGenerator
+   reads the rewritten table, and its `stmyFraction > 0` admits the new bins),
+   `rt_tvvRegClassFraction`, `rt_tvvTankSize`, `rt_tvvTankFill`, `rt_tvvBackPurge`,
+   `rt_tvvCanisterCapacity` (NewTVVYear's regClassFractionOfSTMY), and `hot_stmyTotal`
+   (TotalActivityGenerator's hotelling split). NOT rewired: `svp_salesWeight` (F87).
+   `components/onroad_source_bin_distribution.esm` (the early `runs/mixed_onroad_run.esm`
+   assembly) reads its own constants and is untouched.
+4. **`hot_avftTotal`** for ProjectTAG: the default `svp_stmyFraction` summed over the
+   UNSTATED sample-vehicle rows of (source type, model year) -- the projection's rows,
+   computed as the query they are -- plus every stated avft row. `hot_stmyTotal` bit for
+   bit when nothing is stated.
+5. **Refusals:** `run_avftUnported` (commit 40ddd3f) counted every rewritten row of a
+   selected source type; after (2) it counted only a project avft rewriting source type 62;
+   after (4) nothing is left that it could count, and it is deleted with its term.
+
+**Still not reproduced, and not counted:** the float cast (it moves the branch only within
+3e-8 of the 1e-6 threshold; a `cast` op was declined, #674); BaseRateGenerator at NATION
+geography, which reads the rewritten table for the EV share (no capture selects NATION,
+and the model does not read the geography type); a PROJECT database whose avft is
+genuinely EMPTY, which MOVES would give no hotelling hours and this convention reads as the
+projection (every project database here states the projection); avft rows at model years
+outside the run (applied by MOVES, read by nothing the run emits). A RATES twin was not
+captured: Rates scale reads sampleVehiclePopulation through the same source-bin
+distribution and TAG paths, so it exercises no other reader.
+
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d against the main tree's `.fixtures-run/` after its esm 0.14.0 suite: 199 files over 58 runs, every relation, shape and oracle table byte-identical, each run passing its oracle -- every RunSpec whose snapshot carries an avft (`scale-county`, every `scale-county-*`, every `project-*`, `scale-project`, every `rates-project*`, `userdb-hotelling-multiyear` and its `-day`, `-month`, `-year`) and the DEFAULT-domain controls `process-tirewear`, `expand-sourcetype` and `chain-so2-co2e-mechanism`. `run-link-omd-oracle.sh` reproduces `project-avft`'s link operating-mode distribution too (43,495 of 43,495 cells, scheduling predicate 0 disagreeing) once it reads the fixture XML from moves.rs branch `capture-avft`: its predicate takes a run's domain from `characterization/fixtures/<run>.xml`, which reaches the main checkout only with that branch.
+
+**Cost.** Evaluated one at a time under `/scratch.local/ctessum/eval.lock` on the final model: `scale-county-avft` 98 s user CPU (2 min 15 s wall) at 4.1 GB peak RSS, `project-avft` 43 s (51 s wall) at 3.0 GB.
 
 #### 7.3.79 On-Road Retrofit: a factor on the finished row, keyed by the row's own pollutant, and a strategy that can switch itself off
 

@@ -9941,6 +9941,53 @@ of five from the multi-day part. Measured per rule on `scale-county-outstep-hour
 `tvv_unweighted` 854 s to 0.94 s (the first day's) and 0.08 s (the pinned days'),
 `tvv_hourly` 259 s to 0.89 s, `tvv_sumInitialToHour` 175 s to 2.4 s.
 
+## 129. A control strategy that rewrites an input relation is a derived column every consumer reads, and a reader that bypasses the rewrite keeps the source **[PLAN.md §7.3.78; `scale-county-avft` 10,188 of 10,188 at 9.757e-06 and `project-avft` 489 of 489 at 8.316e-06, key-exact, no `cell_exception`; every run whose database states an avft byte-identical]**
+
+AVFTControlStrategy (MOVES 5's Alternative Vehicle Fuels & Technologies) is not a
+calculator and writes no output: before any generator runs, AVFTMasterLoopable issues
+one UPDATE of `sampleVehiclePopulation` per avft row, and everything downstream reads
+the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
+
+1. **The rewrite is a derived column beside the stored one, and consumers are rewired
+   one by one.** `svp_avftStmyFraction` is the table after the strategy; every rule that
+   read `svp_stmyFraction` was asked which table MOVES reads at that point. The
+   source-bin distribution (SourceBinDistributionGenerator), TankVaporVenting's
+   regulatory-class weights (MultidayTankVaporVentingCalculator.sql's NewTVVYear) and
+   TAG's hotelling split (TotalActivityGenerator) read the execution database's table
+   after the strategy and take the derived column. BaseRateGenerator's EV sales share
+   does NOT: it joins `samplevehiclepopulationdefault`, InputDataManager's copy of the
+   DEFAULT table made before any input database is merged, at every geography but
+   NATION. Grep a rewritten table's name AND its `...default` copies before rewiring.
+2. **Where the rewrite does nothing, the derived column is the stored one, bit for bit.**
+   `avft_rewritten_fraction` is `ifelse(branch, ..., stmy_fraction)`, so with no row
+   stated every consumer sums the very same doubles in the very same order, and every
+   run without an avft is byte-identical by construction, not by luck.
+3. **A table whose default is a query over another table may be stated by its
+   departures.** AVFTTool's default avft is `sum(stmyFraction)` over regulatory class --
+   exactly applyNewFraction's `old` -- so each of its rows takes the no-change branch and
+   is indistinguishable, to the strategy, from an absent row. A catalogue therefore
+   declares only the rows its database restates (`tools/build-scale-input-db.py` writes
+   the SQL's INSERTs), and one whose avft IS the projection inherits the default
+   database's empty table. The one reader that sees the difference, ProjectTAG, computes
+   the projection's rows from the default sample-vehicle population
+   (`hot_avftTotal`): data that is a query is ported as the query.
+4. **A second reader of the strategy's INPUT is a separate path.** ProjectTAG reads
+   avft.fuelEngFraction directly for hotelling hours -- every row, including one
+   sampleVehiclePopulation has no combination for (which the strategy ignores) and one
+   inside the 1e-6 threshold (which the strategy leaves alone). Its total is the
+   rewritten fleet's only when the avft is the projection, so the DEFAULT path's
+   `hot_stmyTotal` was a correct surrogate exactly until a project database stated
+   anything else (F88: 0.18% of `project-avft`'s 2018 long-haul hotelling hours are a
+   gasoline share the fleet has no row for). A strategy port asks of every table the strategy READS, not
+   only the one it writes, who else reads it.
+5. **Measure the rewritten table before porting.** The capture dumps the execution
+   database after the run, so the strategy's output is in the snapshot: 37 rewritten
+   sample-vehicle rows, reproduced in pandas from the default table and the stated
+   avft to 4e-8 (the FLOAT column MOVES stores them in) with ADD and SUBTRACT both
+   exercised, before an equation was written. The float cast of `new` and `old` moves
+   the branch only within 3e-8 of the 1e-6 threshold and is not reproduced (an AST
+   `cast` op was declined, #674).
+
 ## 130. A control strategy that UPDATEs the worker's output multiplies the finished row by its own key, and a strategy that switches itself off is a refusal **[PLAN.md §7.3.79; `scale-county-retrofit` 17,358 of 17,358 and `userdb-retrofit-multiyear` 3,552 of 3,552, key-exact, no `cell_exception`; `rates-retrofit` pending on a pre-existing multi-bin RatePerDistance gap (F91); every run whose output stage holds `rtDay_quant` or `rtRate_total` byte-identical]**
 
 1. **Find WHERE the strategy's SQL runs before deciding what it multiplies.** On-Road
