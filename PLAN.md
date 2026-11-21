@@ -859,7 +859,7 @@ came out of the pair.
 ### Phase 6 — Control strategies
 
 AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV
-(`moves.rs/docs/control-strategies.md`). Deferred deliberately: none of the 39
+(`moves.rs/docs/control-strategies.md`, whose Rate-of-Progress section is not what MOVES does: §7.3.81). Deferred deliberately: none of the 39
 fixtures exercises them, so this is scope beyond reproducing the examples.
 
 **Status 2026-11-20: AVFT is ported** (§7.3.78, conventions §129). MOVES 5 runs
@@ -879,6 +879,15 @@ Rate-of-Progress and LEV are not ported.
 §7.3.80 closed the pre-existing multi-class RatePerDistance gap, F91). What no capture checks -- other processes,
 `aggregateBy`, PROJECT domain, summed output steps, and a table MOVES switches off --
 stays counted (`run_retrofitUnported`).
+
+**Rate-of-Progress: refused 2026-11-20 (§7.3.81, finding F92).** MOVES 5.0.1 cannot run it:
+spDoRateOfProgress selects `hcSpeciation.fuelMYGroupID`, which MOVES 5's hcSpeciation does not have,
+aborts after rewriting `year.fuelYearID` alone, logs ERROR and leaves MOVESOutput empty
+(`scale-county-rop-running` against its twin). There is no oracle to port it against, so the
+RunSpec's strategy is now READ -- `db_runspecinternalcontrolstrategy`, a per-run declaration mounted
+empty everywhere (conventions §132) -- and every run that turns it on is counted
+(`run_ropUnported`, inside `run_selectionUnported`) instead of being read as strategy-off. LEV and
+nonroad retrofit are not ported.
 
 ---
 
@@ -1061,8 +1070,9 @@ blocks what.
    `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
 
 Phase 6 (control strategies) stayed deferred until 2026-11-20, when AVFT
-(§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures; see
-§3's Phase 6 for its status.
+(§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures and
+Rate-of-Progress, which MOVES 5.0.1 itself fails to run, was made a counted
+refusal (§7.3.81); see §3's Phase 6 for its status.
 
 ### 6.1 What the fidelity gate now consists of
 
