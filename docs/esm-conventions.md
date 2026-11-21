@@ -10118,3 +10118,33 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    MOVESEngine's domain-only hotelling-table check refused one lacking the five hotelling tables
    (§7.3.79 added them empty). `userdb-lev.xml` leaves the element empty with a non-placeholder
    description, and the LEV database holds the one table the tool writes.
+
+## 134. A blend the reference applies after its adjustments moves to the earliest rate its key completes, a clamp in between needs a track axis, and a national table is joined through a key only the run's rows carry **[PLAN.md §7.3.83; `im-cook` 11,784 of 11,784, `im-cook-venting` 13,152 of 13,152, `rates-im` every Rates table, key-exact; F96-F98]**
+
+1. **Measure the blend's linearity by running the model twice.** BaseRateCalculator blends
+   `(1 - f) x rate + f x rateIM` after every adjustment. Before porting, the model was run as it was
+   and again with the I/M rate put in place of the rate through a scratch user input database (the
+   LEV merge, §133), and `(1 - f) x O + f x O_IM` per output row, with f from the capture's tables by
+   the Go's algorithm, reproduced all 11,784 rows at the uncovered rows' own worst cell. That one
+   pandas line proved where the blend may go and at what key, which reading the Go could only suggest.
+2. **An affine, shared chain lets a blend move upstream.** Every step between BaseRateGenerator's read
+   and the Go's blend multiplies or adds the same coefficients to both rates, and the fraction's key
+   (pollutant-process, model year, source type, fuel, county) is constant over everything summed in
+   between, so the blend is placed where that key first completes: the weighted rate, per county
+   (`rtMode_imBlendedRate`). One mixed array replaces carrying a second rate through the whole chain.
+3. **A clamp between the two tracks does not commute; give the chain a track axis.** Venting's cold
+   soak differences cumulative vapor hour on hour and clamps at 0 before the blend, so the I/M leak
+   fraction must take its own clamps. The `tvv_*` family gained a trailing size-2 axis
+   (`imtrack_rows`) on which only the leak fraction differs; one expression, two tracks, mixed at the
+   first variable that no longer needs them. Twin equations would have duplicated the chain's logic.
+4. **Join a national table through a gated key.** IMCoverage is 2,024,874 rows; a run needs its
+   county-year's. Joined on the plain pollutant-process, the engine paired every row with IMFactor on
+   the program keys before the county and year clauses narrowed it -- 258,722,042 pairs, 14 GB where
+   the run was 4.6 GB -- and `ESS_JOIN_GATE_LOG=1` names the gate (`i~f:258722042`). A per-row
+   variable that is the pollutant-process on the run's own rows and -1 elsewhere
+   (`imc_runPolProcessID`) makes the match set the run's programs: 4.9 GB. The same device keeps the
+   I/M rate's second J58 to the rows where it differs (`erba_imPolProcessID`). Read the gate log before
+   guessing: two plausible suspects were fixed first and moved nothing.
+5. **A rate with no activity is written 0.** RatePerDistance at a road type the zone allocates no SHO
+   is 0 in MOVES (F96); a Washtenaw-only corpus cannot show it, and the first county with a zero
+   allocation did.
