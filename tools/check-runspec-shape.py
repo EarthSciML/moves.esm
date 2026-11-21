@@ -104,23 +104,20 @@ added a regulatory class would find out here rather than in a low number.
 §7.3.40). A PROJECT-domain run takes its SHO from its links and its running
 operating modes from the link's own drive-schedule blend, and the model does
 that for one link in one county, for running exhaust, inside the drive
-schedules' speed range. Every way past those limits -- two links on one road
-type, a second county, brake wear or tire wear or a start or evaporative process
-on a project, an out-of-bounds bracket MOVES itself refuses -- would emit a
-plausible number rather than none, so the model counts them, together with a
-DEFAULT-domain run that carries a linkSourceTypeHour row only ProjectTAG reads,
-and this asserts the count is 0.
+schedules' speed range. That was the first cut; PLAN.md §7.3.57-§7.3.62
+widened it to several links, grades, user schedules and every process with a
+project generator. What is still outside -- the list is the counter's own
+description in onroad/model.esm -- would emit a plausible number rather than
+none, so the model counts it, and this asserts the count is 0.
 
 `run_selectionUnported` is a SIXTH kind, and it guards the run's SELECTION
-rather than its domain (PLAN.md §7.3.41). Since PLAN.md §7.3.46 the road type is
-an axis and running exhaust's off-network idle is computed, so what is left is
-an evaporative process on a second on-network road type (its SourceHours are
-per link in MOVES and summed here), an on-road pollutant-process other than
-running exhaust beside road type 1 (evaporative SHP rows, which this model does
-not write), a hotelling, start or off-network idle block in a run that
-pre-aggregates time, and at Rates scale everything the RatePerDistance relation
-does not compute (`run_ratesUnported`, PLAN.md 7.3.47); this asserts the count
-is 0.
+rather than its domain (PLAN.md §7.3.41). What it still counts is listed in
+its own description in onroad/model.esm: an on-road pollutant-process beside
+road type 1 that writes no off-network rows, what time aggregation selects and
+the model does not compute (`run_aggregationUnported`), time aggregation at
+Rates scale (`run_ratesUnported`, which MOVES refuses anyway) and the
+onRoadRetrofit rows no capture checks (`run_retrofitUnported`); this asserts the
+count is 0.
 
 The pollutant-process key gained the road type at PLAN.md §7.3.46. An output
 BLOCK is a (pollutant-process, road type) pair: `expand-roadtypes` emits running
@@ -273,23 +270,29 @@ def main(emitted_path, shape_path, rpd_path=None):
     if unported:
         problems.append("%d thing(s) this run asks of its DOMAIN that the model "
                         "does not do (run_domainUnported): a runspecdomain that "
-                        "is not one row, or in PROJECT domain a county without "
-                        "exactly one link, a second county, an emitted process "
-                        "other than running exhaust or an out-of-bounds bracket, "
-                        "or outside it a linkSourceTypeHour row" % unported)
+                        "is not one row; in PROJECT domain a selected road type "
+                        "without a link, a walked drive schedule the captures do "
+                        "not measure, a second county, an emitted "
+                        "pollutant-process without a project generator, user "
+                        "link operating-mode rows not read or with gaps, or two "
+                        "links on one road type at Rates scale; outside it a "
+                        "linkSourceTypeHour row; in any domain an undeclared "
+                        "extra link or grade, a ZoneRoadType or Zone row the "
+                        "default lacks, or hotelling adjustments over a third "
+                        "calendar year" % unported)
     if unselected:
         problems.append("%d thing(s) this run SELECTS that the model does not "
-                        "compute (run_selectionUnported): an evaporative "
-                        "process on a second on-network road type, an on-road "
-                        "pollutant-process other than running exhaust beside the "
-                        "off-network road type 1, or a hotelling, start or "
-                        "off-network idle block in a run that aggregates hours "
-                        "or day types, or at Rates scale an evaporative or "
-                        "refueling block, a kept chain prerequisite, a sulfate-PM "
-                        "or non-HAP TOG row, a PROJECT domain or any time "
-                        "aggregation (run_ratesUnported), or an "
-                        "onRoadRetrofit row outside what the retrofit captures "
-                        "check (run_retrofitUnported)" % unselected)
+                        "compute (run_selectionUnported): an on-road "
+                        "pollutant-process other than running exhaust, crankcase "
+                        "running, brake or tire wear or an evaporative one beside "
+                        "the off-network road type 1; what a run that aggregates "
+                        "time selects and the model does not compute "
+                        "(run_aggregationUnported); a soakActivityFraction cell "
+                        "MOVES writes no row for on an Hour-step run; time "
+                        "aggregation at Rates scale, which MOVES refuses "
+                        "(run_ratesUnported); or an onRoadRetrofit row outside "
+                        "what the retrofit captures check (run_retrofitUnported)"
+                        % unselected)
     if problems:
         for p in problems:
             print(p)
