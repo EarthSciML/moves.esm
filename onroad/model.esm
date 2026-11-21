@@ -1860,6 +1860,10 @@
     "imfactor_rows": {
       "kind": "interval",
       "size": "n_imfactor"
+    },
+    "imtrack_rows": {
+      "kind": "interval",
+      "size": 2
     }
   },
   "enums": {
@@ -4110,6 +4114,22 @@
             "source": "db_cumtvvcoeffs",
             "from": {
               "file_variable": "leakFraction"
+            }
+          }
+        },
+        "ctc_leakFractionIM": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "cumtvvcoeffs_rows"
+          ],
+          "description": "cumTVVCoeffs.leakFractionIM: the share of I/M-inspected vehicles with a leaking canister. NULL (NaN here) on ten rows of the default table -- regulatory classes 41-48, model-year group 1971-1977, age groups 1014 and 1519 -- where the calculator's `coalesce(leakFractionIM, leakFraction)` takes the leak fraction (`rt_leakFractionIM`).",
+          "update": {
+            "kind": "data",
+            "source": "db_cumtvvcoeffs",
+            "from": {
+              "file_variable": "leakFractionIM"
             }
           }
         },
@@ -6469,6 +6489,14 @@
           ],
           "description": "`ctc_leakFraction` at the row's cumTVVCoeffs row."
         },
+        "rt_leakFractionIM": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "`coalesce(ctc_leakFractionIM, ctc_leakFraction)` at the row's cumTVVCoeffs row (MultidayTankVaporVentingCalculator.sql:1456): the NULL guarded with a VALUE, by `ifelse(x >= 0, x, leakFraction)`, which a NaN fails (docs/esm-conventions.md §29)."
+        },
         "rt_tvvRegClassFraction": {
           "type": "unknown",
           "units": "1",
@@ -6809,9 +6837,10 @@
             "runspecday_rows",
             "runspecday_rows",
             "runspeccounty_rows",
-            "runspecmonth_rows"
+            "runspecmonth_rows",
+            "imtrack_rows"
           ],
-          "description": "TVV-5's `tankVaporVented` on the FIRST soaking day, per (cell, initial cell): its canister load is the vapor generated since the initial hour, `tvv_sumInitialToHour`, and so is the leak term's daily vapor."
+          "description": "TVV-5's `tankVaporVented` on the FIRST soaking day, per (cell, initial cell): its canister load is the vapor generated since the initial hour, `tvv_sumInitialToHour`, and so is the leak term's daily vapor. On two I/M TRACKS (`imtrack_rows`): track 1 at cumTVVCoeffs' leakFraction, track 2 at its leakFractionIM -- MultidayTankVaporVentingCalculator.sql's `tankVaporVentedIM`, the same TVV and leak equations with the I/M leak fraction (PLAN.md §7.3.83)."
         },
         "tvv_unweightedFirstDay": {
           "type": "unknown",
@@ -6821,9 +6850,10 @@
             "runspecday_rows",
             "runspecday_rows",
             "runspeccounty_rows",
-            "runspecmonth_rows"
+            "runspecmonth_rows",
+            "imtrack_rows"
           ],
-          "description": "Its hourly increment: this hour's less the hour before's -- hour 24 before hour 1, gathered at `tvv_wrapHourRow` -- before the clamp, and 0 unless the cold-soak tank warmed from that hour to this."
+          "description": "Its hourly increment: this hour's less the hour before's -- hour 24 before hour 1, gathered at `tvv_wrapHourRow` -- before the clamp, and 0 unless the cold-soak tank warmed from that hour to this. Per I/M track (`imtrack_rows`: 1 the leakFraction track, 2 the leakFractionIM track, which MultidayTankVaporVentingCalculator.sql carries as `...IM` columns through the same clamps)."
         },
         "tvv_firstDayWeight": {
           "type": "unknown",
@@ -6857,9 +6887,10 @@
             "runspecday_rows",
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "soakday_rows"
+            "soakday_rows",
+            "imtrack_rows"
           ],
-          "description": "TVV-5's `tankVaporVented`, cumulative: the regulatory class's share of the leaking and non-leaking canisters' vapor at the day's load. stmyTVVEquations' leakFraction is the class share times cumTVVCoeffs', as NewTVVYear writes it. PINNED: a soaking day after the first starts at hour 1 (`tvv_soakWeight`), so this is read only at the initial cell `tvv_dayFirstRow` and carries no initial-cell axis; 0 on a day without hour 1. Day 1 at every initial cell is `tvv_ventedFirstDay`."
+          "description": "TVV-5's `tankVaporVented`, cumulative: the regulatory class's share of the leaking and non-leaking canisters' vapor at the day's load. stmyTVVEquations' leakFraction is the class share times cumTVVCoeffs', as NewTVVYear writes it. PINNED: a soaking day after the first starts at hour 1 (`tvv_soakWeight`), so this is read only at the initial cell `tvv_dayFirstRow` and carries no initial-cell axis; 0 on a day without hour 1. Day 1 at every initial cell is `tvv_ventedFirstDay`. On two I/M TRACKS (`imtrack_rows`): track 1 at cumTVVCoeffs' leakFraction, track 2 at its leakFractionIM -- MultidayTankVaporVentingCalculator.sql's `tankVaporVentedIM`, the same TVV and leak equations with the I/M leak fraction (PLAN.md §7.3.83)."
         },
         "tvv_unweighted": {
           "type": "unknown",
@@ -6869,9 +6900,10 @@
             "runspecday_rows",
             "runspeccounty_rows",
             "runspecmonth_rows",
-            "soakday_rows"
+            "soakday_rows",
+            "imtrack_rows"
           ],
-          "description": "This hour's cumulative vented vapor less the previous hour's -- hour 24 before hour 1, gathered at `tvv_wrapHourRow` -- before the clamp, and 0 unless the cold-soak tank warmed from that hour to this. PINNED: a soaking day after the first starts at hour 1 (`tvv_soakWeight`), so this is read only at the initial cell `tvv_dayFirstRow` and carries no initial-cell axis; 0 on a day without hour 1."
+          "description": "This hour's cumulative vented vapor less the previous hour's -- hour 24 before hour 1, gathered at `tvv_wrapHourRow` -- before the clamp, and 0 unless the cold-soak tank warmed from that hour to this. PINNED: a soaking day after the first starts at hour 1 (`tvv_soakWeight`), so this is read only at the initial cell `tvv_dayFirstRow` and carries no initial-cell axis; 0 on a day without hour 1. Per I/M track (`imtrack_rows`: 1 the leakFraction track, 2 the leakFractionIM track, which MultidayTankVaporVentingCalculator.sql carries as `...IM` columns through the same clamps)."
         },
         "tvv_soakWeight": {
           "type": "unknown",
@@ -6890,9 +6922,10 @@
             "sourcebin_rows",
             "runspecday_rows",
             "runspeccounty_rows",
-            "runspecmonth_rows"
+            "runspecmonth_rows",
+            "imtrack_rows"
           ],
-          "description": "`HourlyTVV`, part A: the unweighted increment, clamped, weighted and summed over soaking days and initial hours -- the first day's at every initial cell, a later day's at the day's hour-1 cell, in the order the (initial cell, soaking day) pairs were always summed."
+          "description": "`HourlyTVV`, part A: the unweighted increment, clamped, weighted and summed over soaking days and initial hours -- the first day's at every initial cell, a later day's at the day's hour-1 cell, in the order the (initial cell, soaking day) pairs were always summed. Per I/M track (`imtrack_rows`: 1 the leakFraction track, 2 the leakFractionIM track, which MultidayTankVaporVentingCalculator.sql carries as `...IM` columns through the same clamps)."
         },
         "tvv_coldSoakRate": {
           "type": "unknown",
@@ -6901,9 +6934,10 @@
             "sourcebin_rows",
             "runspecday_rows",
             "runspeccounty_rows",
-            "runspecmonth_rows"
+            "runspecmonth_rows",
+            "imtrack_rows"
           ],
-          "description": "`HourlyTVV` with part B: the four hours after the peak take the peak's at 0.02, 0.01, 0.004 and 0.0005, and nothing later -- the peak's gathered at `tvv_peakRow`. Operating mode 151's rate, grams per hour of cold soak."
+          "description": "`HourlyTVV` with part B: the four hours after the peak take the peak's at 0.02, 0.01, 0.004 and 0.0005, and nothing later -- the peak's gathered at `tvv_peakRow`. Operating mode 151's rate, grams per hour of cold soak. Per I/M track (`imtrack_rows`: 1 the leakFraction track, 2 the leakFractionIM track, which MultidayTankVaporVentingCalculator.sql carries as `...IM` columns through the same clamps)."
         },
         "rtDay_coldSoakWeightedRate": {
           "type": "unknown",
@@ -6914,7 +6948,7 @@
             "runspeccounty_rows",
             "runspecmonth_rows"
           ],
-          "description": "TVV-8's cold-soak insert into `WeightedMeanBaseRate`: `HourlyTVV` weighted by the source bin's activity fraction, exactly as the operating insert weights `emissionRateByAge` (`rtMode_weightedRate`). Operating mode 151 of a venting row, per cell."
+          "description": "TVV-8's cold-soak insert into `WeightedMeanBaseRate`: `HourlyTVV` weighted by the source bin's activity fraction, exactly as the operating insert weights `emissionRateByAge` (`rtMode_weightedRate`). Operating mode 151 of a venting row, per cell. I/M-BLENDED (`im_mix` at `rt_imAdjustFract`) between the leakFraction track and the leakFractionIM track: the venting calculator blends `emissionQuant` and `emissionQuantIM` per output row (MultidayTankVaporVentingCalculator.sql:2029-2036), and both are sums of rate x hours x fraction over the same modes, so the blend moves to each mode's rate; the operating and hot-soak modes are blended in `rtMode_imBlendedRate` (PLAN.md §7.3.83)."
         },
         "ttg_averageTankTemperature": {
           "type": "unknown",
@@ -62063,6 +62097,79 @@
           }
         },
         {
+          "lhs": "rt_leakFractionIM",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "c": {
+                "from": "cumtvvcoeffs_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_regClassID",
+                    "ctc_regClassID"
+                  ],
+                  [
+                    "rt_polProcessID",
+                    "ctc_polProcessID"
+                  ],
+                  [
+                    "rt_ageGroupID",
+                    "ctc_ageGroupID"
+                  ],
+                  [
+                    "rt_ppModelYearGroupID",
+                    "ctc_modelYearGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "ctc_leakFractionIM",
+                        "c"
+                      ]
+                    },
+                    0.0
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ctc_leakFractionIM",
+                    "c"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "ctc_leakFraction",
+                    "c"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
           "lhs": "rt_tvvRegClassFraction",
           "rhs": {
             "op": "faq",
@@ -64971,7 +65078,8 @@
               "k",
               "k2",
               "g",
-              "n"
+              "n",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -64988,6 +65096,9 @@
               },
               "n": {
                 "from": "runspecmonth_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -65085,14 +65196,39 @@
                           ]
                         },
                         {
-                          "op": "index",
+                          "op": "ifelse",
                           "args": [
-                            "rt_leakFraction",
+                            {
+                              "op": ">",
+                              "args": [
+                                "j",
+                                1.5
+                              ]
+                            },
                             {
                               "op": "index",
                               "args": [
-                                "tvv_binRateRow",
-                                "u"
+                                "rt_leakFractionIM",
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tvv_binRateRow",
+                                    "u"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_leakFraction",
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tvv_binRateRow",
+                                    "u"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -65359,7 +65495,8 @@
               "k",
               "k2",
               "g",
-              "n"
+              "n",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -65376,6 +65513,9 @@
               },
               "n": {
                 "from": "runspecmonth_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -65415,7 +65555,8 @@
                         "k",
                         "k2",
                         "g",
-                        "n"
+                        "n",
+                        "j"
                       ]
                     },
                     {
@@ -65454,7 +65595,8 @@
                             },
                             "k2",
                             "g",
-                            "n"
+                            "n",
+                            "j"
                           ]
                         },
                         0.0
@@ -65731,7 +65873,8 @@
               "k",
               "g",
               "n",
-              "q"
+              "q",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -65748,6 +65891,9 @@
               },
               "q": {
                 "from": "soakday_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -65898,14 +66044,39 @@
                           ]
                         },
                         {
-                          "op": "index",
+                          "op": "ifelse",
                           "args": [
-                            "rt_leakFraction",
+                            {
+                              "op": ">",
+                              "args": [
+                                "j",
+                                1.5
+                              ]
+                            },
                             {
                               "op": "index",
                               "args": [
-                                "tvv_binRateRow",
-                                "u"
+                                "rt_leakFractionIM",
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tvv_binRateRow",
+                                    "u"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_leakFraction",
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "tvv_binRateRow",
+                                    "u"
+                                  ]
+                                }
                               ]
                             }
                           ]
@@ -66184,7 +66355,8 @@
               "k",
               "g",
               "n",
-              "q"
+              "q",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -66201,6 +66373,9 @@
               },
               "q": {
                 "from": "soakday_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -66240,7 +66415,8 @@
                         "k",
                         "g",
                         "n",
-                        "q"
+                        "q",
+                        "j"
                       ]
                     },
                     {
@@ -66279,7 +66455,8 @@
                             },
                             "g",
                             "n",
-                            "q"
+                            "q",
+                            "j"
                           ]
                         },
                         0.0
@@ -66348,7 +66525,8 @@
               "u",
               "k",
               "g",
-              "n"
+              "n",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -66368,6 +66546,9 @@
               },
               "q": {
                 "from": "soakday_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -66395,7 +66576,8 @@
                             "k",
                             "k2",
                             "g",
-                            "n"
+                            "n",
+                            "j"
                           ]
                         }
                       ]
@@ -66462,7 +66644,8 @@
                                 "k",
                                 "g",
                                 "n",
-                                "q"
+                                "q",
+                                "j"
                               ]
                             }
                           ]
@@ -66494,7 +66677,8 @@
               "u",
               "k",
               "g",
-              "n"
+              "n",
+              "j"
             ],
             "ranges": {
               "u": {
@@ -66508,6 +66692,9 @@
               },
               "n": {
                 "from": "runspecmonth_rows"
+              },
+              "j": {
+                "from": "imtrack_rows"
               }
             },
             "expr": {
@@ -66520,7 +66707,8 @@
                     "u",
                     "k",
                     "g",
-                    "n"
+                    "n",
+                    "j"
                   ]
                 },
                 {
@@ -66612,7 +66800,8 @@
                               ]
                             },
                             "g",
-                            "n"
+                            "n",
+                            "j"
                           ]
                         }
                       ]
@@ -66708,20 +66897,53 @@
                       ]
                     },
                     {
-                      "op": "index",
-                      "args": [
-                        "tvv_coldSoakRate",
-                        {
+                      "op": "apply_expression_template",
+                      "args": [],
+                      "name": "im_mix",
+                      "bindings": {
+                        "rate_im": {
                           "op": "index",
                           "args": [
-                            "rt_binOrdinal",
-                            "b"
+                            "tvv_coldSoakRate",
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_binOrdinal",
+                                "b"
+                              ]
+                            },
+                            "k",
+                            "g",
+                            "n",
+                            2
                           ]
                         },
-                        "k",
-                        "g",
-                        "n"
-                      ]
+                        "fraction_im": {
+                          "op": "index",
+                          "args": [
+                            "rt_imAdjustFract",
+                            "b",
+                            "g"
+                          ]
+                        },
+                        "rate_base": {
+                          "op": "index",
+                          "args": [
+                            "tvv_coldSoakRate",
+                            {
+                              "op": "index",
+                              "args": [
+                                "rt_binOrdinal",
+                                "b"
+                              ]
+                            },
+                            "k",
+                            "g",
+                            "n",
+                            1
+                          ]
+                        }
+                      }
                     },
                     0.0
                   ]
@@ -73061,37 +73283,32 @@
               }
             ],
             "filter": {
-              "op": "and",
-              "args": [
-                {
-                  "op": "apply_expression_template",
-                  "args": [],
-                  "name": "model_year_in_range",
-                  "bindings": {
-                    "model_year": {
-                      "op": "index",
-                      "args": [
-                        "rt_modelYearID",
-                        "b"
-                      ]
-                    },
-                    "first_model_year": {
-                      "op": "index",
-                      "args": [
-                        "imc_begModelYearID",
-                        "i"
-                      ]
-                    },
-                    "last_model_year": {
-                      "op": "index",
-                      "args": [
-                        "imc_endModelYearID",
-                        "i"
-                      ]
-                    }
-                  }
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "model_year_in_range",
+              "bindings": {
+                "model_year": {
+                  "op": "index",
+                  "args": [
+                    "rt_modelYearID",
+                    "b"
+                  ]
+                },
+                "first_model_year": {
+                  "op": "index",
+                  "args": [
+                    "imc_begModelYearID",
+                    "i"
+                  ]
+                },
+                "last_model_year": {
+                  "op": "index",
+                  "args": [
+                    "imc_endModelYearID",
+                    "i"
+                  ]
                 }
-              ]
+              }
             },
             "expr": {
               "op": "*",
