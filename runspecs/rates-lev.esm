@@ -2,7 +2,7 @@
   "esm": "1.2.0",
   "metadata": {
     "name": "rates-lev-runspec",
-    "description": "PLAN.md §7.3.79: `rates-retrofit`, the Rates-scale run of the On-Road Retrofit port -- THC, CO, NMHC and the PM2.5 total with EC, NonECPM, sulfate and aerosol water at running and start exhaust, for the single-unit short-haul truck (52) and the combination long-haul truck (62), every fuel MOVES adds, in Washtenaw County, DEFAULT domain, August 2020, weekday, hour 7, at `<modelscale value=\"Rates\"/>`, from the default database plus a USER INPUT DATABASE holding thirteen On-Road Retrofit programs (`inputs/washtenaw-userdb-retrofit.esm`).\n\nWHAT IT DISCRIMINATES. OnRoadRetrofitStrategy.buildSQL updates BaseRateOutput (emissionRate, meanBaseRate) beside MOVESWorkerOutput, and RatePostProcessorRatesFirst.sql writes the rate tables from BaseRateOutput, so the factor reaches RatePerDistance through `rtRate_total` and RatePerStart through `rto_ratePerActivity`; RatePerVehicle is MOVESOutput over the population, `out_emissionQuant` through `rtDay_quant`. Measured before porting against the un-retrofitted twin `rates-retrofit-base` (moves.rs, not wired here): 69,615 nonzero RatePerDistance cells, 1,071 RatePerStart and 1,071 RatePerVehicle cells are the twin's times the predicted factor within 9.9e-06, and no child pollutant moves.\n\nWHAT IT REPRODUCES (PLAN.md §7.3.80, finding F91 fixed): every table, key set exact, no `cell_exception` -- RatePerDistance 79,560 of 79,560 (worst cell 6.5e-06), RatePerStart 1,224 of 1,224 (4.8e-06), RatePerVehicle 1,224 of 1,224 (1.1e-05), StartsPerVehicle 160 of 160 (8.1e-06), RatePerHour and RatePerProfile empty in both. Every cohort here but CNG has two to four regulatory classes (41, 42, 46, 47 on 52; 46, 47, 49 on 62), and every Rates capture before it selected the single-class gasoline passenger car on the per-speed-bin path: its RatePerDistance on road types 2-5 was 1.9x to 112x high (52,864 cells) until each class's per-bin rate took its share of the cohort (`rt_regClassRateShare`, BaseRateCalculator's `smfrRatesFraction`). Its un-retrofitted twin is `rates-retrofit-base`.\n\nTHE BINDINGS. `n_ratesScale` = 1 and `n_outputRate`, the (pollutant-process, road type, cohort) pairs across five road types, checked by `rateSurvivorCount`.",
+    "description": "PLAN.md §7.3.82: `rates-lev` -- `userdb-lev` at Rates scale (MESOSCALE_LOOKUP): THC, CO, NOx and NMHC at running and start exhaust for 21, 31 and 32, every fuel MOVES adds, Washtenaw, DEFAULT domain, 2020, August, weekday, hour 7, over the same LEV user input database (`inputs/washtenaw-userdb-lev.esm`). userdb-lev's PM2.5 group is left out: a first capture with it failed inside the capture container (\"No space left on device\" bundling into /opt/moves/sharedwork), and the LEV database carries no PM row at 2020 anyway.\n\nWHAT IT DISCRIMINATES is the merged rate on the RATE path: BaseRateGenerator reads the merged emissionRateByAge (796,173 execution rows at the run's pollutant-processes, reproduced exactly in pandas, 48,657 of them the user's) and the rate tables are written from BaseRateOutput, so every table but StartsPerVehicle carries the LEV rates at 1999-2003 and 2010-2017.\n\n`n_outputRate` is bound to the chain's `rateSurvivorCount`; `n_sourceBin` 2 and `n_physicsRow` 7 as in `userdb-lev`; `n_ratesScale` 1.\n\nNo `db_movesoutput` here: a Rates run's oracle is its rate tables.",
     "authors": [
       "EarthSciML Authors and Contributors"
     ],
@@ -189,7 +189,7 @@
         "tags": [
           "scope"
         ],
-        "note": "18 rows: THC, CO, NOx, NMHC, the PM2.5 total, EC, sulfate, NonECPM and aerosol water, each at running (x01) and start (x02) exhaust. Ten of them -- THC, CO, NOx, EC and NonECPM -- read emissionRateByAge, and are the ten the LEV template copies.",
+        "note": "8 rows: THC, CO, NOx and NMHC at running (x01) and start (x02) exhaust. THC, CO and NOx read emissionRateByAge, and the LEV database holds rows at all six.",
         "esio_format": "parquet"
       }
     },
@@ -206,7 +206,7 @@
           "scope",
           "chain"
         ],
-        "note": "14 rows: NMHC from THC; the PM2.5 total from EC and NonECPM; sulfate and aerosol water from NonECPM; NonECPM's own sulfate/water edges. Every chained pollutant is computed FROM a LEV-rated parent, which is how the LEV rows reach it.",
+        "note": "2 rows: NMHC from THC at running and start, so NMHC carries the LEV-rated THC.",
         "esio_format": "parquet"
       }
     },
@@ -243,7 +243,7 @@
           "oracle",
           "expected-output"
         ],
-        "note": "The 79,560-row RatePerDistance: running exhaust on road types 2 to 5 at 16 speed bins and one row per cohort at road type 1. The retrofit programs' rows are the un-retrofitted run's times their factor.",
+        "note": "The 90,220-row RatePerDistance: running exhaust per mile on road types 2 to 5 at 16 speed bins, and the off-network rows, per cohort and pollutant. The LEV-rated cohorts carry LEV rates; passenger trucks and light commercial trucks are two-class cohorts (regulatory classes 30 and 41), so the per-class share of §7.3.80 is in play.",
         "esio_format": "parquet"
       }
     },
@@ -264,7 +264,7 @@
           "oracle",
           "expected-output"
         ],
-        "note": "The 1,224-row RatePerStart: start exhaust per start, the retrofit programs' rows times their factor.",
+        "note": "The 1,388-row RatePerStart: start exhaust per start.",
         "esio_format": "parquet"
       }
     },
@@ -306,7 +306,7 @@
           "oracle",
           "expected-output"
         ],
-        "note": "The 1,224-row RatePerVehicle: start exhaust per vehicle, MOVESOutput over the population.",
+        "note": "The 1,388-row RatePerVehicle: start exhaust per vehicle, MOVESOutput over the population.",
         "esio_format": "parquet"
       }
     },
@@ -346,7 +346,7 @@
           "oracle",
           "expected-output"
         ],
-        "note": "160 rows: starts per vehicle, which no retrofit factor reaches.",
+        "note": "373 rows: starts per vehicle, which no LEV rate reaches.",
         "esio_format": "parquet"
       }
     }
