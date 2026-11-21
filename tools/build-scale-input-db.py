@@ -47,8 +47,16 @@ the precedence the model writes has nothing to choose between.
 tables with ZERO rows, typed by the default database: a DEFAULT-domain run has
 no input database, so the input side of every row merge is empty there.
 
+`--internal-control-strategies <runspec.xml> <outdir>` writes the one table a
+RunSpec's `<internalcontrolstrategies>` element stands for,
+`runspecinternalcontrolstrategy.parquet`: a row per strategy, its class name and
+its `useParameters` value. Rate-of-Progress is the one strategy MOVES 5 takes from
+the RunSpec rather than from a table (PLAN.md §7.3.81); a RunSpec with an empty
+element writes the table with no rows.
+
 usage: build-scale-input-db.py <setup.sql> <runspec.xml> <movesdb-dir> <outdir> [--copy T1,T2,...]
        build-scale-input-db.py --default-domain <outdir> [<movesdb-dir> T1,T2,...]
+       build-scale-input-db.py --internal-control-strategies <runspec.xml> <outdir>
 """
 import os
 import re
@@ -179,6 +187,33 @@ def write_domain(outdir, domain):
     print("%-24s %s" % ("runspecdomain", domain))
 
 
+def write_strategies(outdir, xml_path):
+    """`runspecinternalcontrolstrategy.parquet`: one row per `<internalcontrolstrategy>`
+    of the RunSpec -- its `classname` and the value of the `useParameters` line of its
+    TSV text, as RateOfProgressStrategy.acceptTSV reads it (the first four lines,
+    tab-separated, name matched case-insensitively; no line is "" and means No).
+    MOVES writes neither anywhere in the execution database (PLAN.md §7.3.81)."""
+    names, values = [], []
+    root = ET.parse(xml_path).getroot().find("internalcontrolstrategies")
+    for node in (root if root is not None else []):
+        if node.tag.lower() != "internalcontrolstrategy":
+            continue
+        value = ""
+        for line in (node.text or "").strip("\r\n").splitlines()[:4]:
+            parts = line.split("\t")
+            if not line or not parts:
+                break
+            if parts[0].strip().lower() == "useparameters":
+                value = parts[1].strip() if len(parts) > 1 else ""
+                break
+        names.append(node.get("classname") or "")
+        values.append(value)
+    pq.write_table(pa.table({"className": pa.array(names, pa.string()),
+                             "useParameters": pa.array(values, pa.string())}),
+                   os.path.join(outdir, "runspecinternalcontrolstrategy.parquet"))
+    print("%-30s %d row(s)" % ("runspecinternalcontrolstrategy", len(names)))
+
+
 def write_rows(movesdb, outdir, table, cols, rows):
     name, schema = default_schema(movesdb, table)
     data = {f.name: [] for f in schema}
@@ -219,6 +254,10 @@ if __name__ == "__main__":
         if len(sys.argv) == 5:
             for table in sys.argv[4].split(","):
                 write_rows(sys.argv[3], sys.argv[2], table, [], [])
+        sys.exit(0)
+    if len(sys.argv) == 4 and sys.argv[1] == "--internal-control-strategies":
+        os.makedirs(sys.argv[3], exist_ok=True)
+        write_strategies(sys.argv[3], sys.argv[2])
         sys.exit(0)
     args = sys.argv[1:]
     copy = ()

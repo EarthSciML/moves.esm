@@ -116,8 +116,9 @@ its own description in onroad/model.esm: an on-road pollutant-process beside
 road type 1 that writes no off-network rows, what time aggregation selects and
 the model does not compute (`run_aggregationUnported`), time aggregation at
 Rates scale (`run_ratesUnported`, which MOVES refuses anyway) and the
-onRoadRetrofit rows no capture checks (`run_retrofitUnported`); this asserts the
-count is 0.
+onRoadRetrofit rows no capture checks (`run_retrofitUnported`) and a RunSpec
+that turns the Rate-of-Progress strategy on (`run_ropUnported`, PLAN.md §7.3.81);
+this asserts the count is 0.
 
 The pollutant-process key gained the road type at PLAN.md §7.3.46. An output
 BLOCK is a (pollutant-process, road type) pair: `expand-roadtypes` emits running
@@ -290,8 +291,10 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "(run_aggregationUnported); a soakActivityFraction cell "
                         "MOVES writes no row for on an Hour-step run; time "
                         "aggregation at Rates scale, which MOVES refuses "
-                        "(run_ratesUnported); or an onRoadRetrofit row outside "
-                        "what the retrofit captures check (run_retrofitUnported)"
+                        "(run_ratesUnported); an onRoadRetrofit row outside "
+                        "what the retrofit captures check (run_retrofitUnported); "
+                        "or the Rate-of-Progress strategy, which MOVES 5.0.1 "
+                        "itself fails to run (run_ropUnported)"
                         % unselected)
     if problems:
         for p in problems:
