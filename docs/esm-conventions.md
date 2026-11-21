@@ -10078,3 +10078,43 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    description.** Porting the SQL as written would reproduce a strategy no MOVES 5 run has ever
    executed, against no oracle; porting the failure would emit an empty table after an ERROR. The
    model emits neither: `run_ropUnported` counts every run with the strategy on.
+
+## 133. A user table that replaces rows of a default table is a shadowing row merge on the default's axis, and the reference's builder is preprocessing, not model **[PLAN.md §7.3.82; `userdb-lev` and `scale-county-lev` 17,748 of 17,748, `userdb-lev-2025` 18,558 of 18,558, `rates-lev` every Rates table (RatePerDistance 270,660 cells), key-exact, no `cell_exception`; every run whose rate path holds `rtMode_rateByAge` byte-identical]**
+
+1. **Find where the "strategy" runs before porting it; MOVES 5's LEV and NLEV run in the GUI.** The
+   two programs are not internal control strategies. Tools > Build LEV / NLEV Input Database
+   (gui/BuildLEVNLEV.java) runs database/LEV_NLEVScripts/*.sql into a database holding one table,
+   `emissionRateByAge`, copied from the default's `emissionRateByAgeLEV` / `-NLEV`, and the user adds
+   it to `<databaseselections>`. At run time MOVES only MERGES it: MasterLoop.java:206-250 merges every
+   user database (last-listed first), then the domain database, then the default, and
+   InputDataManager copies every table with INSERT IGNORE (DatabaseUtilities.copyTable), so the first
+   writer of a key wins. The port is therefore a row merge, not a strategy.
+2. **A shadowing merge is computed per DEFAULT row, with its precedence in one template.**
+   `input_row_or_default(match_count, input_value, default_value)` (lib/keys.esm) is §93's shadow
+   merge written once: the count of input rows sharing the default row's WHOLE primary key, their
+   value, and the default otherwise. `erba_mergedMeanBaseRate` and the three earlier call sites
+   (`zrt_mergedSHOAllocFactor`, `zn_merged*`) use it; the readers read the merged column and nothing
+   else changes. The input side is declared EMPTY where every table is declared
+   (`onroad/default-database.esm`, the fixture catalogue, the 7c spike) and shadowed by the document
+   of the run that has one (§119.4), so every other run is the degenerate case: the merged column IS
+   the default column, bit for bit. `components/user_table_row_merge.esm` tests the template on
+   const arrays: a shadowed row, an unshadowed one, and the added-row count (8 assertions).
+3. **Measure that the merge only replaces before porting it as one.** A merge on the default's axis
+   cannot see a row the input ADDS (§93). Every LEV and NLEV key is a default key (92,274 and 7,812
+   of them), and the capture's execution `emissionRateByAge` is the default's at the run's
+   pollutant-processes with exactly the user's 48,657 values in place (1,384,677 rows, every one
+   exact) -- so the axis is right. A hand-made table could add keys; that is counted
+   (`run_inputRateByAgeRowsAdded`), not computed.
+4. **The reference's builder is the user's preprocessing; its OUTPUT is the model input.** The LEV
+   template's WHERE (`polprocessid in (...)`, `mid(sourcebinid,8,2) in (...)`) is GUI-side SQL whose
+   result MOVES never re-derives, and a user may build the table any other way. So the run's input
+   is the table itself, written from the recipe by `tools/build-scale-input-db.py --copy` (which
+   evaluates that WHERE as MySQL does: MID of the decimal text, compared numerically, `''` as 0) and
+   checked equal to the user database the capture dumped. Porting the template would have bound the
+   model to one way of building its input.
+5. **A capture recipe that names a user database must not also make it the domain database.**
+   `capture-county-snapshot.sh` fills an empty `<scaleinputdatabase>` placeholder with the seeded
+   database, so a DEFAULT-domain run's user database was also its (unread) domain database, and
+   MOVESEngine's domain-only hotelling-table check refused one lacking the five hotelling tables
+   (§7.3.79 added them empty). `userdb-lev.xml` leaves the element empty with a non-placeholder
+   description, and the LEV database holds the one table the tool writes.

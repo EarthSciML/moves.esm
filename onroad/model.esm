@@ -745,6 +745,16 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in runspecinternalcontrolstrategy: one per `<internalcontrolstrategy>` of the RunSpec, none in every RunSpec before PLAN.md §7.3.81. Rate-of-Progress is the one strategy MOVES 5 takes from the RunSpec rather than from a database table."
+    },
+    "n_inputemissionratebyage": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in a USER input database's emissionRateByAge: 0 in the default database's catalogue and in every county, project and execution database captured before PLAN.md §7.3.82. MOVES 5's LEV and NLEV tools (Tools > Build LEV / NLEV Input Database; database/LEV_NLEVScripts/) write exactly this table, from the default database's emissionRateByAgeLEV or emissionRateByAgeNLEV, into a database the user adds to `<databaseselections>`."
+    },
+    "n_imcoverage": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in IMCoverage: 2,024,874 in the default database (the national table, every county and year with an I/M program), 0 in every execution database of the corpus (Washtenaw has no I/M program)."
     }
   },
   "index_sets": {
@@ -1833,6 +1843,14 @@
     "runspecinternalcontrolstrategy_rows": {
       "kind": "interval",
       "size": "n_runspecinternalcontrolstrategy"
+    },
+    "inputemissionratebyage_rows": {
+      "kind": "interval",
+      "size": "n_inputemissionratebyage"
+    },
+    "imcoverage_rows": {
+      "kind": "interval",
+      "size": "n_imcoverage"
     }
   },
   "enums": {
@@ -1841,7 +1859,10 @@
       "PetroleumEnergyConsumption": 92,
       "FossilFuelEnergyConsumption": 93,
       "OxidesOfNitrogen": 3,
-      "TotalHydrocarbons": 1
+      "TotalHydrocarbons": 1,
+      "CarbonMonoxide": 2,
+      "ElementalCarbon": 112,
+      "CompositeNonECPM": 118
     },
     "process": {
       "RunningExhaust": 1,
@@ -1986,6 +2007,7 @@
           "only": [
             "model_year_in_range",
             "row_is_present",
+            "input_row_or_default",
             "latest_at_or_before_key",
             "flat_relation_major",
             "flat_relation_minor"
@@ -9145,7 +9167,7 @@
           "shape": [
             "emissionratebyage_rows"
           ],
-          "description": "emissionratebyage.meanBaseRate at that age group, grams per source-hour at this operating mode.",
+          "description": "emissionratebyage.meanBaseRate at that age group, grams per source-hour at this operating mode. The DEFAULT database's value; the rate read is `erba_mergedMeanBaseRate`, the row merge with a user input database's emissionRateByAge (PLAN.md §7.3.82).",
           "update": {
             "kind": "data",
             "source": "db_emissionratebyage",
@@ -17949,7 +17971,7 @@
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows."
+          "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows. It reads the MERGED rate (`erba_mergedMeanBaseRate`): a user input database's emissionRateByAge -- MOVES 5's LEV and NLEV tables -- replaces the default row at its key (PLAN.md §7.3.82)."
         },
         "rtMode_fullACAdjustment": {
           "type": "unknown",
@@ -21617,7 +21639,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66, and all three at `aggregateBy` Year, §7.3.70; every evaporative, refueling, crankcase and wear process, §7.3.64; the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65; and a stated soakActivityFraction under 24-Hour Day and Month, §7.3.67); and the cells of a zone stating soakActivityFraction that MOVES writes no evaporative row for, on a run emitted at `<outputtimestep>` Hour, whose output relation has no membership flag (`run_soakActivityGapsEmitted`, §7.3.67). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute. It does NOT count the species at extended idle, APU and the crankcase processes, which are ported (PLAN.md §7.3.72): before that, `scale-county-idle-species` read 0 here while crankcase extended idle's methane, NMHC, NMOG and VOC were 12x-105x high and every APU species block was absent -- the one failure that was counted was `run_chainDepthExceeded`. Nor NonHAPTOG wherever the mechanism (3000) is selected, ported in PLAN.md §7.3.73: before that, `scale-county-idle-nonhaptog` read 0 here while 898 of its 3,978 NonHAPTOG rows -- at start, crankcase start, crankcase extended idle, extended idle and APU, where 88 is no pollutant-process and TOGSpeciationCalculator writes it from the mechanism's selection alone -- were absent.\n Nor the PM species, PAH particles, metals and dioxins at every exhaust process, which are ported or, for the metals and dioxins, absent as MOVES writes them (PLAN.md §7.3.74): before that, `scale-county-minor-offnet` read 0 here while 15,552 of its 17,062 rows were absent -- SulfatePMCalculator's 13 other `pmSpeciation` species, TOM, the residual, the 16 PAH particles, every crankcase PM row and five of APU's seven PM blocks (findings F80, F82) -- and 157 of the rest were 2.8% high (extended idle's and APU's EC and residue took no biodiesel fuel ratio, F82). The metals and dioxins MOVES does not write at all (F81).\n And the onRoadRetrofit rows outside what the retrofit captures check (`run_retrofitUnported`): OnRoadRetrofitStrategy is ported for running and start exhaust (PLAN.md §7.3.79), and before that it counted every row. And the Rate-of-Progress strategy where the model does not reproduce it (`run_ropUnported`, PLAN.md §7.3.81)."
+          "description": "How many things this run SELECTS that the model does not compute, beside its domain (`run_domainUnported`): 0, asserted by tools/check-runspec-shape.py. It counts an on-road pollutant-process other than running exhaust, crankcase running, brake or tire wear or an evaporative one (`occursOnRealRoads` = Y) in a run that also selects road type 1 (`run_onRoadPollutantProcessCount`); and what a run that aggregates hours or day types selects and the model does not compute (`run_aggregationUnported`; starts, hotelling and off-network idle under aggregation are ported, PLAN.md §7.3.63, with the idle adjustment tables, at two calendar years and over a partial week, §7.3.66, and all three at `aggregateBy` Year, §7.3.70; every evaporative, refueling, crankcase and wear process, §7.3.64; the month collapse of `aggregateBy` Year for what `scale-county-timeagg-year` checks, §7.3.65; and a stated soakActivityFraction under 24-Hour Day and Month, §7.3.67); and the cells of a zone stating soakActivityFraction that MOVES writes no evaporative row for, on a run emitted at `<outputtimestep>` Hour, whose output relation has no membership flag (`run_soakActivityGapsEmitted`, §7.3.67). None of these fails loudly -- each emits a plausible number or none. Evaporative processes on several road types and chained ones with parents both on and off the network are ported (PLAN.md §7.3.48 part C). At Rates scale it also counts `run_ratesUnported`, everything the Rates tables do not compute. It does NOT count the species at extended idle, APU and the crankcase processes, which are ported (PLAN.md §7.3.72): before that, `scale-county-idle-species` read 0 here while crankcase extended idle's methane, NMHC, NMOG and VOC were 12x-105x high and every APU species block was absent -- the one failure that was counted was `run_chainDepthExceeded`. Nor NonHAPTOG wherever the mechanism (3000) is selected, ported in PLAN.md §7.3.73: before that, `scale-county-idle-nonhaptog` read 0 here while 898 of its 3,978 NonHAPTOG rows -- at start, crankcase start, crankcase extended idle, extended idle and APU, where 88 is no pollutant-process and TOGSpeciationCalculator writes it from the mechanism's selection alone -- were absent.\n Nor the PM species, PAH particles, metals and dioxins at every exhaust process, which are ported or, for the metals and dioxins, absent as MOVES writes them (PLAN.md §7.3.74): before that, `scale-county-minor-offnet` read 0 here while 15,552 of its 17,062 rows were absent -- SulfatePMCalculator's 13 other `pmSpeciation` species, TOM, the residual, the 16 PAH particles, every crankcase PM row and five of APU's seven PM blocks (findings F80, F82) -- and 157 of the rest were 2.8% high (extended idle's and APU's EC and residue took no biodiesel fuel ratio, F82). The metals and dioxins MOVES does not write at all (F81).\n And the onRoadRetrofit rows outside what the retrofit captures check (`run_retrofitUnported`): OnRoadRetrofitStrategy is ported for running and start exhaust (PLAN.md §7.3.79), and before that it counted every row. And the Rate-of-Progress strategy where the model does not reproduce it (`run_ropUnported`, PLAN.md §7.3.81). And every emissionRateByAge row a user input database states, the table MOVES 5's LEV and NLEV tools build (`run_levUnported`, PLAN.md §7.3.82). And a county with an I/M program at a selected pollutant-process, which the model does not blend in (`run_imUnported`, finding F95)."
         },
         "run_retrofitUnported": {
           "type": "unknown",
@@ -26579,6 +26601,229 @@
             "run_rows"
           ],
           "description": "Every run with the Rate-of-Progress strategy on (`run_rateOfProgress`), counted by `run_selectionUnported`. It is a PERMANENT refusal, not a port in waiting: MOVES 5.0.1 cannot run the strategy (finding F92, PLAN.md §7.3.81). spDoRateOfProgress (database/RateOfProgressStrategy.sql) selects `fuelMYGroupID` from hcSpeciation, a column MOVES 5's hcSpeciation no longer has (it is keyed by beginModelYearID/endModelYearID), so the procedure aborts at its model-year-group decode, after its first statement -- `update year set fuelYearID = 1990 where yearID > 1993` -- and before any of the ~25 rewrites it exists for. RateOfProgressStrategy logs `ERROR: Unable to execute script`, and the run goes on with a calendar year whose fuel year has no fuelSupply row (InputDataManager copied only the run's own fuel years): FuelEffectsGenerator skips every fuel type, no base rate and no source-bin distribution is written, and MOVESOutput is EMPTY (`scale-county-rop-running`, captured against its twin `scale-county-rop-running-base`: the only execution table rewritten is `year`, 62 rows). So there is no oracle to port the strategy against, and the model would emit the inventory as if the strategy were off: it refuses instead."
+        },
+        "erbai_sourceBinID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `sourceBinID`: the packed source bin, packed exactly as `erba_sourceBinID` is. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "sourceBinID"
+            }
+          }
+        },
+        "erbai_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `polProcessID`: the pollutant-process. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "erbai_opModeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `opModeID`: the operating mode. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "opModeID"
+            }
+          }
+        },
+        "erbai_ageGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `ageGroupID`: the age group. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "ageGroupID"
+            }
+          }
+        },
+        "erbai_meanBaseRate": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `meanBaseRate`: the rate that replaces the default row's at the same key. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "meanBaseRate"
+            }
+          }
+        },
+        "run_inputRateByAgeRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "How many emissionRateByAge rows the RunSpec's user input databases state (`db_input_emissionratebyage`): 0 in every catalogue that declares no user database. `userdb-lev` and `rates-lev`: 48,657."
+        },
+        "run_levUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "What of a user input database's emissionRateByAge no capture checks, counted by `run_selectionUnported` (PLAN.md §7.3.82): its rows at a pollutant-process other than the LEV tool's ten (`run_inputRateByAgeOtherRows`), its rows whose key the default lacks (`run_inputRateByAgeRowsAdded`), and every row in PROJECT domain (`run_isProjectDomain`), which no capture checks -- MasterLoop merges user databases the same way in every domain, but the project rate path is not measured with one. MOVES 5's LEV and NLEV programs are not run-time strategies: the GUI tools BuildLEVAction and BuildNLEVAction run database/LEV_NLEVScripts/MOVES5_MyLEVS_Template.sql (emissionRateByAgeLEV at ten pollutant-processes and the model-year groups the user keeps, `mid(sourceBinID,8,2)`) or MOVES5_MyNLEVS.sql (every emissionRateByAgeNLEV row) into a database holding ONE table, emissionRateByAge, which the user adds to `<databaseselections>`; MasterLoop merges it before the default database with INSERT IGNORE, so its rows replace the default rows at their keys. That merge is ported (`erba_mergedMeanBaseRate`) and checked by `userdb-lev` (DEFAULT domain, Inventory), `scale-county-lev` (SINGLE domain, beside a county database) and `rates-lev` (Rates). Before it, this counted every user row: the model read the default rates alone and a LEV run emitted the un-LEV inventory, silently."
+        },
+        "erba_inputRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "How many rows of a USER input database's emissionRateByAge (`db_input_emissionratebyage`) share this default row's whole primary key -- sourceBinID, polProcessID, opModeID, ageGroupID: 0 or 1. MasterLoop.java:206-250 merges every `<databaseselection>` (last-listed first) and then the domain database BEFORE the default database, and InputDataManager copies every table with INSERT IGNORE (DatabaseUtilities.copyTable), so a matching user row SHADOWS this one (PLAN.md §7.3.82)."
+        },
+        "erba_inputMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The shadowing user row's meanBaseRate, 0 where there is none."
+        },
+        "erba_mergedMeanBaseRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "THE ROW MERGE of emissionRateByAge (`input_row_or_default`, docs/esm-conventions.md §133): the user input database's meanBaseRate where it states this row's key, the default's otherwise. It is what MOVES 5's LEV and NLEV programs ARE at run time -- the LEV tool's database holds emissionRateByAgeLEV's rows at the model-year groups the user kept, the NLEV tool's every emissionRateByAgeNLEV row, and every one of those keys is a default key (92,274 and 7,812 of them, measured), so the merge replaces values and adds no row. Reproduced against `userdb-lev`'s execution database: all 1,384,677 rows at its pollutant-processes exact, 48,657 of them the user's (PLAN.md §7.3.82). Every catalogue without a user database mounts the input side empty, so this is the default value itself."
+        },
+        "run_inputRateByAgeOtherRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "User emissionRateByAge rows at a pollutant-process other than the ten the LEV tool copies and `userdb-lev` and `rates-lev` check -- THC, CO, NOx, elemental carbon and composite non-EC PM at running and start exhaust (MOVES5_MyLEVS_Template.sql's `polprocessid in (101,201,301,102,202,302,11201,11202,11801,11802)`; the NLEV table holds six of them). The default table also carries the evaporative 111-113 and NH3 3001/3002 rows, which a hand-made user table could shadow."
+        },
+        "run_inputRateByAgeRowsAdded": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "User emissionRateByAge rows whose key the default table lacks: the merge would ADD them, and `erba_mergedMeanBaseRate`, on the default side's axis, cannot see them (docs/esm-conventions.md §93). The LEV and NLEV tables add none (every one of their keys is a default key); a hand-made table could."
+        },
+        "imc_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.polProcessID: the pollutant-process the program covers.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "imc_countyID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.countyID: the county.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "countyID"
+            }
+          }
+        },
+        "imc_yearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.yearID: the calendar year.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "yearID"
+            }
+          }
+        },
+        "imc_useIM": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.useIMyn decoded: 1 for 'Y' (either case; the default database writes 5,412 rows as 'y'), else 0.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "useIMyn",
+              "codes": {
+                "map": {
+                  "y": 1
+                },
+                "case_insensitive": true,
+                "unmapped": 0
+              }
+            }
+          }
+        },
+        "run_imProgramRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects -- the programs by which calc/baseratecalculator/baseratecalculator.go blends each rate row's meanBaseRateIM (carried by BaseRateGenerator) into its meanBaseRate, by IMAdjustFract, complianceFactor as a fraction times IMFactor (baseratecalculator.go:184, 580-617). 0 in every run of the corpus."
+        },
+        "run_imUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Every run whose county has an I/M program at a selected pollutant-process (`run_imProgramRows`), counted by `run_selectionUnported` (finding F95, PLAN.md §7.3.82). The model reads meanBaseRate alone and never meanBaseRateIM, so it computes every rate as if no vehicle were inspected: in a county with a program (most urban counties outside Michigan) the THC, CO and NOx running and start rates, and the evaporative rates IMFactor scales, would be silently high. Every capture in the corpus is in Washtenaw County, which has none, so nothing measured has seen it."
         }
       },
       "equations": [
@@ -72008,7 +72253,7 @@
             "expr": {
               "op": "index",
               "args": [
-                "erba_meanBaseRate",
+                "erba_mergedMeanBaseRate",
                 "a"
               ]
             }
@@ -110393,38 +110638,62 @@
                                   "op": "+",
                                   "args": [
                                     {
-                                      "op": "*",
+                                      "op": "+",
                                       "args": [
                                         {
-                                          "op": "*",
+                                          "op": "+",
                                           "args": [
                                             {
-                                              "op": "index",
+                                              "op": "*",
                                               "args": [
-                                                "run_offNetworkSelected",
-                                                "n"
+                                                {
+                                                  "op": "*",
+                                                  "args": [
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "run_offNetworkSelected",
+                                                        "n"
+                                                      ]
+                                                    },
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "run_onRoadPollutantProcessCount",
+                                                        "n"
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "op": "-",
+                                                  "args": [
+                                                    1.0,
+                                                    {
+                                                      "op": "index",
+                                                      "args": [
+                                                        "run_isProjectDomain",
+                                                        "n"
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
                                               ]
                                             },
                                             {
                                               "op": "index",
                                               "args": [
-                                                "run_onRoadPollutantProcessCount",
+                                                "run_aggregationUnported",
                                                 "n"
                                               ]
                                             }
                                           ]
                                         },
                                         {
-                                          "op": "-",
+                                          "op": "index",
                                           "args": [
-                                            1.0,
-                                            {
-                                              "op": "index",
-                                              "args": [
-                                                "run_isProjectDomain",
-                                                "n"
-                                              ]
-                                            }
+                                            "run_startModeAgeVariation",
+                                            "n"
                                           ]
                                         }
                                       ]
@@ -110432,7 +110701,7 @@
                                     {
                                       "op": "index",
                                       "args": [
-                                        "run_aggregationUnported",
+                                        "run_ratesUnported",
                                         "n"
                                       ]
                                     }
@@ -110441,7 +110710,7 @@
                                 {
                                   "op": "index",
                                   "args": [
-                                    "run_startModeAgeVariation",
+                                    "run_soakActivityGapsEmitted",
                                     "n"
                                   ]
                                 }
@@ -110450,7 +110719,7 @@
                             {
                               "op": "index",
                               "args": [
-                                "run_ratesUnported",
+                                "run_retrofitUnported",
                                 "n"
                               ]
                             }
@@ -110459,7 +110728,7 @@
                         {
                           "op": "index",
                           "args": [
-                            "run_soakActivityGapsEmitted",
+                            "run_ropUnported",
                             "n"
                           ]
                         }
@@ -110468,7 +110737,7 @@
                     {
                       "op": "index",
                       "args": [
-                        "run_retrofitUnported",
+                        "run_levUnported",
                         "n"
                       ]
                     }
@@ -110477,7 +110746,7 @@
                 {
                   "op": "index",
                   "args": [
-                    "run_ropUnported",
+                    "run_imUnported",
                     "n"
                   ]
                 }
@@ -111209,25 +111478,14 @@
         {
           "lhs": "zrt_mergedSHOAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zrt_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zrt_inputSHOAllocFactor",
-              "zrt_SHOAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zrt_inputRowCount",
+              "input_value": "zrt_inputSHOAllocFactor",
+              "default_value": "zrt_SHOAllocFactor"
+            }
           }
         },
         {
@@ -124735,25 +124993,14 @@
         {
           "lhs": "zn_mergedStartAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zn_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zn_inputStartAllocFactor",
-              "zn_startAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zn_inputRowCount",
+              "input_value": "zn_inputStartAllocFactor",
+              "default_value": "zn_startAllocFactor"
+            }
           }
         },
         {
@@ -124795,25 +125042,14 @@
         {
           "lhs": "zn_mergedSHPAllocFactor",
           "rhs": {
-            "op": "ifelse",
-            "args": [
-              {
-                "op": ">",
-                "args": [
-                  {
-                    "op": "apply_expression_template",
-                    "args": [],
-                    "name": "row_is_present",
-                    "bindings": {
-                      "match_count": "zn_inputRowCount"
-                    }
-                  },
-                  0.5
-                ]
-              },
-              "zn_inputSHPAllocFactor",
-              "zn_SHPAllocFactor"
-            ]
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "zn_inputRowCount",
+              "input_value": "zn_inputSHPAllocFactor",
+              "default_value": "zn_SHPAllocFactor"
+            }
           }
         },
         {
@@ -131228,6 +131464,569 @@
                 },
                 1.0,
                 0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_inputRateByAgeRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "run_levUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "+",
+              "args": [
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_inputRateByAgeOtherRows",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_inputRateByAgeRowsAdded",
+                        "n"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_inputRateByAgeRows",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_isProjectDomain",
+                        "n"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "erba_inputRowCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "erba_sourceBinID",
+                    "erbai_sourceBinID"
+                  ],
+                  [
+                    "erba_polProcessID",
+                    "erbai_polProcessID"
+                  ],
+                  [
+                    "erba_opModeID",
+                    "erbai_opModeID"
+                  ],
+                  [
+                    "erba_ageGroupID",
+                    "erbai_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": 1.0
+          }
+        },
+        {
+          "lhs": "erba_inputMeanBaseRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "erba_sourceBinID",
+                    "erbai_sourceBinID"
+                  ],
+                  [
+                    "erba_polProcessID",
+                    "erbai_polProcessID"
+                  ],
+                  [
+                    "erba_opModeID",
+                    "erbai_opModeID"
+                  ],
+                  [
+                    "erba_ageGroupID",
+                    "erbai_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "erbai_meanBaseRate",
+                "u"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "erba_mergedMeanBaseRate",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "erba_inputRowCount",
+              "input_value": "erba_inputMeanBaseRate",
+              "default_value": "erba_meanBaseRate"
+            }
+          }
+        },
+        {
+          "lhs": "run_inputRateByAgeOtherRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "and",
+                  "args": [
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "or",
+                          "args": [
+                            {
+                              "op": "or",
+                              "args": [
+                                {
+                                  "op": "or",
+                                  "args": [
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "pollutant_id_of",
+                                          "bindings": {
+                                            "pol_process_id": {
+                                              "op": "index",
+                                              "args": [
+                                                "erbai_polProcessID",
+                                                "u"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "pollutant",
+                                            "TotalHydrocarbons"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "op": "==",
+                                      "args": [
+                                        {
+                                          "op": "apply_expression_template",
+                                          "args": [],
+                                          "name": "pollutant_id_of",
+                                          "bindings": {
+                                            "pol_process_id": {
+                                              "op": "index",
+                                              "args": [
+                                                "erbai_polProcessID",
+                                                "u"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "op": "enum",
+                                          "args": [
+                                            "pollutant",
+                                            "CarbonMonoxide"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "==",
+                                  "args": [
+                                    {
+                                      "op": "apply_expression_template",
+                                      "args": [],
+                                      "name": "pollutant_id_of",
+                                      "bindings": {
+                                        "pol_process_id": {
+                                          "op": "index",
+                                          "args": [
+                                            "erbai_polProcessID",
+                                            "u"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "op": "enum",
+                                      "args": [
+                                        "pollutant",
+                                        "OxidesOfNitrogen"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "op": "==",
+                              "args": [
+                                {
+                                  "op": "apply_expression_template",
+                                  "args": [],
+                                  "name": "pollutant_id_of",
+                                  "bindings": {
+                                    "pol_process_id": {
+                                      "op": "index",
+                                      "args": [
+                                        "erbai_polProcessID",
+                                        "u"
+                                      ]
+                                    }
+                                  }
+                                },
+                                {
+                                  "op": "enum",
+                                  "args": [
+                                    "pollutant",
+                                    "ElementalCarbon"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "pollutant_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "pollutant",
+                                "CompositeNonECPM"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "op": "or",
+                      "args": [
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "process_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "RunningExhaust"
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "==",
+                          "args": [
+                            {
+                              "op": "apply_expression_template",
+                              "args": [],
+                              "name": "process_id_of",
+                              "bindings": {
+                                "pol_process_id": {
+                                  "op": "index",
+                                  "args": [
+                                    "erbai_polProcessID",
+                                    "u"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "op": "enum",
+                              "args": [
+                                "process",
+                                "StartExhaust"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                0.0,
+                1.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_inputRateByAgeRowsAdded",
+          "rhs": {
+            "op": "-",
+            "args": [
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "u": {
+                    "from": "inputemissionratebyage_rows"
+                  }
+                },
+                "expr": 1.0
+              },
+              {
+                "op": "faq",
+                "args": [],
+                "semiring": "sum_product",
+                "output_idx": [
+                  "n"
+                ],
+                "ranges": {
+                  "n": {
+                    "from": "run_rows"
+                  },
+                  "a": {
+                    "from": "emissionratebyage_rows"
+                  },
+                  "u": {
+                    "from": "inputemissionratebyage_rows"
+                  }
+                },
+                "join": [
+                  {
+                    "on": [
+                      [
+                        "erba_sourceBinID",
+                        "erbai_sourceBinID"
+                      ],
+                      [
+                        "erba_polProcessID",
+                        "erbai_polProcessID"
+                      ],
+                      [
+                        "erba_opModeID",
+                        "erbai_opModeID"
+                      ],
+                      [
+                        "erba_ageGroupID",
+                        "erbai_ageGroupID"
+                      ]
+                    ]
+                  }
+                ],
+                "expr": 1.0
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "run_imProgramRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "imcoverage_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "runspecyear_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "imc_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "imc_yearID",
+                    "rsy_yearID"
+                  ],
+                  [
+                    "imc_polProcessID",
+                    "rspp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "imc_useIM",
+                "i"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_imUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "run_imProgramRows",
+                "n"
               ]
             }
           }

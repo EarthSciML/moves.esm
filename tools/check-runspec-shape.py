@@ -117,7 +117,9 @@ road type 1 that writes no off-network rows, what time aggregation selects and
 the model does not compute (`run_aggregationUnported`), time aggregation at
 Rates scale (`run_ratesUnported`, which MOVES refuses anyway) and the
 onRoadRetrofit rows no capture checks (`run_retrofitUnported`) and a RunSpec
-that turns the Rate-of-Progress strategy on (`run_ropUnported`, PLAN.md §7.3.81);
+that turns the Rate-of-Progress strategy on (`run_ropUnported`, PLAN.md §7.3.81)
+and a user input database's emissionRateByAge, the table MOVES 5's LEV and NLEV
+tools build, where no capture checks it (`run_levUnported`, PLAN.md §7.3.82);
 this asserts the count is 0.
 
 The pollutant-process key gained the road type at PLAN.md §7.3.46. An output
@@ -293,8 +295,11 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "aggregation at Rates scale, which MOVES refuses "
                         "(run_ratesUnported); an onRoadRetrofit row outside "
                         "what the retrofit captures check (run_retrofitUnported); "
-                        "or the Rate-of-Progress strategy, which MOVES 5.0.1 "
-                        "itself fails to run (run_ropUnported)"
+                        "the Rate-of-Progress strategy, which MOVES 5.0.1 "
+                        "itself fails to run (run_ropUnported); or a user "
+                        "input database's emissionRateByAge (the LEV/NLEV "
+                        "tools' table) outside what the LEV capture checks "
+                        "(run_levUnported)"
                         % unselected)
     if problems:
         for p in problems:
