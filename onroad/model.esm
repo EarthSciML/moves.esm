@@ -755,6 +755,11 @@
       "type": "integer",
       "default": 0,
       "description": "Rows in IMCoverage: 2,024,874 in the default database (the national table, every county and year with an I/M program), 0 in every execution database of the corpus (Washtenaw has no I/M program)."
+    },
+    "n_imfactor": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in IMFactor: 230,490 in the default database, at seven pollutant-processes (THC, CO and NOx at running and start exhaust, and venting THC, 112). It is keyed by the program's inspection frequency and test standards, the source type, fuel, I/M model-year group and age group; an IMCoverage row reaches a cohort through it, and a program at a pollutant-process IMFactor has no row for (liquid leaking, 113, has 9,729 IMCoverage rows and none here) applies nothing."
     }
   },
   "index_sets": {
@@ -1851,6 +1856,10 @@
     "imcoverage_rows": {
       "kind": "interval",
       "size": "n_imcoverage"
+    },
+    "imfactor_rows": {
+      "kind": "interval",
+      "size": "n_imfactor"
     }
   },
   "enums": {
@@ -1999,7 +2008,8 @@
             "pm_speciation_weight",
             "pm_speciation_member",
             "retrofit_share_removed",
-            "retrofit_row_is_invalid"
+            "retrofit_row_is_invalid",
+            "im_mix"
           ]
         },
         {
@@ -8872,6 +8882,22 @@
             }
           }
         },
+        "ppmy_IMModelYearGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pollutantprocessmodelyear_rows"
+          ],
+          "description": "pollutantprocessmodelyear.IMModelYearGroupID: the model-year group IMFactor is keyed on, which is not the rate's (`ppmy_modelYearGroupID`): 1996 to 2010 are single years, the rest ranges such as 19811985 or 20112020.",
+          "update": {
+            "kind": "data",
+            "source": "db_pollutantprocessmodelyear",
+            "from": {
+              "file_variable": "IMModelYearGroupID"
+            }
+          }
+        },
         "myg_modelYearGroupID": {
           "type": "parameter",
           "units": "1",
@@ -9173,6 +9199,22 @@
             "source": "db_emissionratebyage",
             "from": {
               "file_variable": "meanBaseRate"
+            }
+          }
+        },
+        "erba_meanBaseRateIM": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "emissionratebyage.meanBaseRateIM: the rate of a vehicle that has been through an I/M program, at the same key. It differs from `erba_meanBaseRate` only at THC, CO and NOx running and start exhaust and venting THC (and equals it everywhere else). The DEFAULT database's value; the rate read is `erba_mergedMeanBaseRateIM`, merged as `erba_mergedMeanBaseRate` is (PLAN.md §7.3.83).",
+          "update": {
+            "kind": "data",
+            "source": "db_emissionratebyage",
+            "from": {
+              "file_variable": "meanBaseRateIM"
             }
           }
         },
@@ -17955,6 +17997,42 @@
           ],
           "description": "J22: ONE clause carrying six key pairs, and THIS IS A COST DECISION, not a reading order (docs/esm-conventions.md 25). Splitting it into one-pair clauses gives a byte-identical answer and, measured on mixed-onroad's 164 x 60 version of it, takes 43x as long. The pollutant-process pair is now a column of the rate relation rather than a run-level scalar, which is what keeps the composite gate a composite gate at 492 x 60 output cells."
         },
+        "rtMode_rateIM": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows"
+          ],
+          "description": "The I/M rate the blend mixes in, through the same selection as `rtMode_rate`: the age group's meanBaseRateIM where the pollutant-process is age-resolved, and the ageless rate otherwise -- no I/M program covers an ageless pollutant-process (IMFactor has rows at THC, CO and NOx running and start and at venting THC alone, all age-resolved), so there the blend fraction is 0 and the second arm is never weighted."
+        },
+        "rt_imModelYearGroupID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows"
+          ],
+          "description": "pollutantProcessMappedModelYear.IMModelYearGroupID at the row's pollutant-process and model year: the I/M model-year group IMFactor is keyed on (baseratecalculator.go:606-612, `ppa.IMModelYearGroupID`)."
+        },
+        "rt_imAdjustFract": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "IMAdjustFract: the share of the row's cohort the county's I/M programs move from meanBaseRate to meanBaseRateIM (baseratecalculator.go:580-628). For each IMCoverage row at the county and calendar year with useIMyn 'Y' whose source type, fuel and pollutant-process are the row's and whose model-year range holds the row's model year, IMFactor at (pollutant-process, inspectFreq, testStandardsID, source type, fuel, I/M model-year group, AGE group) times complianceFactor / 100 -- summed over the programs (the Go adds a second program's product onto the first's), and 0 where IMFactor has no row (the Go `continue`s). Only in a DEFAULT-domain run (`run_isDefaultDomain`). PLAN.md §7.3.83."
+        },
+        "rtMode_imBlendedRate": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows",
+            "runspeccounty_rows"
+          ],
+          "description": "THE I/M BLEND (baseratecalculator.go:1186-1196): `(1 - IMAdjustFract) x meanBaseRate + IMAdjustFract x meanBaseRateIM` (lib/adjustments.esm's `im_mix`), here at the zero-hour rate rather than after BaseRateCalculator's adjustments. That is the same number: every adjustment between BaseRateGenerator's read and the blend -- the fuel ratios, the temperature and humidity factors, the A/C term, start temperature's additive term (whose (1 - f) and f shares sum to one) -- is applied to meanBaseRate and meanBaseRateIM alike and is affine in the rate, and IMAdjustFract is constant over everything summed in between (its key, pollutant-process, model year, source type and fuel, is the rate row's). The one rate-dependent branch, the A/C sign test, is PROJECT-only and keyed on meanBaseRate alone. Where no program covers the row the fraction is 0 and this is `rtMode_rate` exactly. PLAN.md §7.3.83."
+        },
         "rtMode_rateAgeless": {
           "type": "unknown",
           "units": "1",
@@ -17972,6 +18050,15 @@
             "operating_mode_rows"
           ],
           "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows. It reads the MERGED rate (`erba_mergedMeanBaseRate`): a user input database's emissionRateByAge -- MOVES 5's LEV and NLEV tables -- replaces the default row at its key (PLAN.md §7.3.82)."
+        },
+        "rtMode_rateByAgeIM": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "rate_rows",
+            "operating_mode_rows"
+          ],
+          "description": "`rtMode_rateByAge` at meanBaseRateIM: the zero-hour rate of an I/M-inspected vehicle, read from `emissionratebyage` on the same seven keys (`erba_mergedMeanBaseRateIM`). BaseRateGenerator carries it beside meanBaseRate through every weighting (BaseRateGenerator.java:347-469: `sum(sourceBinActivityFraction x meanBaseRateIM)`), and BaseRateCalculator through every adjustment, until the I/M blend (PLAN.md §7.3.83)."
         },
         "rtMode_fullACAdjustment": {
           "type": "unknown",
@@ -18040,7 +18127,7 @@
             "operating_mode_rows",
             "runspeccounty_rows"
           ],
-          "description": "S13(a) and the EV-sales back-scaling: the source-bin-weighted rate at one operating mode. Per county, through the fuel-usage rebase."
+          "description": "S13(a) and the EV-sales back-scaling: the source-bin-weighted rate at one operating mode. Per county, through the fuel-usage rebase. It weights the I/M-BLENDED rate (`rtMode_imBlendedRate`), which is `rtMode_rate` wherever no program covers the row (PLAN.md §7.3.83)."
         },
         "rtDay_meanBaseRate": {
           "type": "unknown",
@@ -20645,6 +20732,14 @@
             "run_rows"
           ],
           "description": "1 when the RunSpec's domain is PROJECT. It is the one switch the domain throws in this model: SHO is ProjectTAG's link-volume product rather than TotalActivityGenerator's VMT allocation (`act_sho`); Starts are ProjectTAG's off-network fleet product rather than AdjustStarts' (`st_starts`) and their operating modes the user's (`sod_weight`); hotelling hours, SHP and SourceHours are ProjectTAG's too (`hot_hours`, `act_shp`, `act_sourceHours`); running exhaust, brake wear and tire wear weight their operating modes by the LINK's distribution rather than the average-speed bins' (`pp_W`); and MOVESOutput carries zone and link (`out_zoneID`, `out_linkID`). Which LINK table the run reads is not switched here: the domain document declares it (moves-onroad.esm and inputs/)."
+        },
+        "run_isDefaultDomain": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "1 when the RunSpec's domain is DEFAULT (or NATIONAL, its deprecated spelling). It switches the I/M blend: only a DEFAULT-domain run copies the default database's IMCoverage (InputDataManager.java:1435 and 2816, `includeIMCoverage = includeFuelSupply`), and a SINGLE-county or PROJECT run takes IMCoverage from its domain database alone, which no catalogue here mounts."
         },
         "run_domainRowCount": {
           "type": "unknown",
@@ -26682,6 +26777,22 @@
             }
           }
         },
+        "erbai_meanBaseRateIM": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputemissionratebyage_rows"
+          ],
+          "description": "The INPUT side of emissionRateByAge's row merge, `meanBaseRateIM`: the I/M rate that replaces the default row's at the same key -- the LEV and NLEV tables state it beside meanBaseRate, and InputDataManager copies the whole row. Empty in every catalogue but a RunSpec's user input database (`db_input_emissionratebyage`).",
+          "update": {
+            "kind": "data",
+            "source": "db_input_emissionratebyage",
+            "from": {
+              "file_variable": "meanBaseRateIM"
+            }
+          }
+        },
         "run_inputRateByAgeRows": {
           "type": "unknown",
           "units": "1",
@@ -26714,6 +26825,14 @@
           ],
           "description": "The shadowing user row's meanBaseRate, 0 where there is none."
         },
+        "erba_inputMeanBaseRateIM": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "The shadowing user row's meanBaseRateIM, 0 where there is none."
+        },
         "erba_mergedMeanBaseRate": {
           "type": "unknown",
           "units": "1",
@@ -26721,6 +26840,14 @@
             "emissionratebyage_rows"
           ],
           "description": "THE ROW MERGE of emissionRateByAge (`input_row_or_default`, docs/esm-conventions.md §133): the user input database's meanBaseRate where it states this row's key, the default's otherwise. It is what MOVES 5's LEV and NLEV programs ARE at run time -- the LEV tool's database holds emissionRateByAgeLEV's rows at the model-year groups the user kept, the NLEV tool's every emissionRateByAgeNLEV row, and every one of those keys is a default key (92,274 and 7,812 of them, measured), so the merge replaces values and adds no row. Reproduced against `userdb-lev`'s execution database: all 1,384,677 rows at its pollutant-processes exact, 48,657 of them the user's (PLAN.md §7.3.82). Every catalogue without a user database mounts the input side empty, so this is the default value itself."
+        },
+        "erba_mergedMeanBaseRateIM": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "THE ROW MERGE of emissionRateByAge's I/M rate, the same merge as `erba_mergedMeanBaseRate` (`input_row_or_default` on the same match count): InputDataManager copies a user row WHOLE, so a LEV or NLEV row replaces the default's meanBaseRateIM at its key together with its meanBaseRate (the LEV table states both). What `rtMode_rateByAgeIM` reads (PLAN.md §7.3.83)."
         },
         "run_inputRateByAgeOtherRows": {
           "type": "unknown",
@@ -26809,13 +26936,277 @@
             }
           }
         },
+        "imc_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.sourceTypeID: the source type the program inspects.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "imc_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.fuelTypeID: the fuel.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "imc_begModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.begModelYearID: the first model year the program inspects. baseratecalculator.go:595 floors it at 1950, which no cohort here is older than.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "begModelYearID"
+            }
+          }
+        },
+        "imc_endModelYearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.endModelYearID: the last model year the program inspects (capped at 2060 by baseratecalculator.go:596, which no cohort here is newer than).",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "endModelYearID"
+            }
+          }
+        },
+        "imc_inspectFreq": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.inspectFreq: 1 annual, 2 biennial -- one of the two program keys IMFactor is read at.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "inspectFreq"
+            }
+          }
+        },
+        "imc_testStandardsID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.testStandardsID: the test (IMTestStandards) -- the other program key IMFactor is read at.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "testStandardsID"
+            }
+          }
+        },
+        "imc_complianceFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "IMCoverage.complianceFactor, a PERCENT: the share of the covered fleet the program actually reaches. baseratecalculator.go:600 scales it by 0.01.",
+          "update": {
+            "kind": "data",
+            "source": "db_imcoverage",
+            "from": {
+              "file_variable": "complianceFactor"
+            }
+          }
+        },
+        "imc_inRun": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "1 on an IMCoverage row the run's extract keeps -- the run's county and calendar year, useIMyn 'Y' (BaseRateCalculator.sql:424-442) -- else 0."
+        },
+        "imc_runPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "imcoverage_rows"
+          ],
+          "description": "`imc_polProcessID` on the rows the run's extract keeps (`imc_inRun`), -1 elsewhere: the key `rt_imAdjustFract` joins the rate row to IMCoverage on. Joined on the plain pollutant-process, every rate row matched every county's and year's programs at its (pollutant-process, source type, fuel) -- tens of thousands of national rows each -- before the county and year narrowed them, and `im-cook` peaked at 16 GB against 4.6 GB without the blend; a key only the run's own rows carry makes the match set the run's programs (docs/esm-conventions.md §134)."
+        },
+        "imf_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.polProcessID.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "imf_inspectFreq": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.inspectFreq: the program key an IMCoverage row joins on.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "inspectFreq"
+            }
+          }
+        },
+        "imf_testStandardsID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.testStandardsID: the program key an IMCoverage row joins on.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "testStandardsID"
+            }
+          }
+        },
+        "imf_sourceTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.sourceTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "sourceTypeID"
+            }
+          }
+        },
+        "imf_fuelTypeID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.fuelTypeID.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "fuelTypeID"
+            }
+          }
+        },
+        "imf_IMModelYearGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.IMModelYearGroupID: the I/M model-year group, read at the cohort through pollutantProcessMappedModelYear (`rt_imModelYearGroupID`).",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "IMModelYearGroupID"
+            }
+          }
+        },
+        "imf_ageGroupID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.ageGroupID: the cohort's AGE group (ageCategory), as emissionRateByAge's is.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "ageGroupID"
+            }
+          }
+        },
+        "imf_IMFactor": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "imfactor_rows"
+          ],
+          "description": "IMFactor.IMFactor: the share of the I/M rate a fully compliant program buys at this key -- 0 or 1 at every exhaust row of the default table, and between at venting's.",
+          "update": {
+            "kind": "data",
+            "source": "db_imfactor",
+            "from": {
+              "file_variable": "IMFactor"
+            }
+          }
+        },
         "run_imProgramRows": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "run_rows"
           ],
-          "description": "IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects -- the programs by which calc/baseratecalculator/baseratecalculator.go blends each rate row's meanBaseRateIM (carried by BaseRateGenerator) into its meanBaseRate, by IMAdjustFract, complianceFactor as a fraction times IMFactor (baseratecalculator.go:184, 580-617). 0 in every run of the corpus."
+          "description": "IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects -- the programs by which BaseRateCalculator and the venting calculator blend meanBaseRateIM into meanBaseRate (`rt_imAdjustFract`, `rtMode_imBlendedRate`, PLAN.md §7.3.83). 0 in every run of the corpus but the I/M captures."
+        },
+        "run_imProgramRowsUnchecked": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "IMCoverage rows with useIMyn 'Y' at the run's county, calendar year and selected pollutant-processes, at a pollutant-process OTHER than those whose blend a capture checks (THC running, THC start, CO running, CO start, NOx running, NOx start; `im-cook`, `im-cook-venting`, `rates-im`, PLAN.md §7.3.83). The only other pollutant-process IMCoverage holds is liquid leaking (113, 9,729 rows nationally), which IMFactor has no row for, so LiquidLeakingCalculator.sql's inner join -- and `rt_imAdjustFract`'s -- applies nothing; it is counted because no capture shows it."
         },
         "run_imUnported": {
           "type": "unknown",
@@ -26823,7 +27214,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "Every run whose county has an I/M program at a selected pollutant-process (`run_imProgramRows`), counted by `run_selectionUnported` (finding F95, PLAN.md §7.3.82). The model reads meanBaseRate alone and never meanBaseRateIM, so it computes every rate as if no vehicle were inspected: in a county with a program (most urban counties outside Michigan) the THC, CO and NOx running and start rates, and the evaporative rates IMFactor scales, would be silently high. Every capture in the corpus is in Washtenaw County, which has none, so nothing measured has seen it."
+          "description": "What of an I/M program the model does not compute, counted by `run_selectionUnported` (PLAN.md §7.3.83; F95 before it): every program row in a SINGLE-county or PROJECT run (`run_imProgramRows` x (1 - `run_isDefaultDomain`)) -- MOVES takes IMCoverage there from the domain database alone (InputDataManager.java:1435, 2816), which no catalogue here mounts, so the default table the model reads is not the one MOVES applies -- and every program row at a pollutant-process no capture checks the blend at (`run_imProgramRowsUnchecked`). The blend itself is ported: `im-cook` (DEFAULT domain, Inventory), `im-cook-venting` and `rates-im` check THC running, THC start, CO running, CO start, NOx running, NOx start. Before the port this counted every program row, and the model emitted the un-inspected rates, 6-12% high per pollutant in Cook County."
         }
       },
       "equations": [
@@ -27678,6 +28069,51 @@
                       "args": [
                         "model_domain",
                         "Project"
+                      ]
+                    }
+                  ]
+                },
+                1.0,
+                0.0
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "run_isDefaultDomain",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "d": {
+                "from": "runspecdomain_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "==",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "rsdom_modelDomain",
+                        "d"
+                      ]
+                    },
+                    {
+                      "op": "enum",
+                      "args": [
+                        "model_domain",
+                        "Default"
                       ]
                     }
                   ]
@@ -72261,6 +72697,71 @@
           "_comment": "J58: the age-resolved rate, on seven key columns -- the four source-bin slots, the pollutant-process, the operating mode and the age group."
         },
         {
+          "lhs": "rtMode_rateByAgeIM",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "a": {
+                "from": "emissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "erba_polProcessID"
+                  ],
+                  [
+                    "om_opModeID",
+                    "erba_opModeID"
+                  ],
+                  [
+                    "rt_shortModYrGroupID",
+                    "erba_shortModYrGroupID"
+                  ],
+                  [
+                    "rt_rateRegClassID",
+                    "erba_regClassID"
+                  ],
+                  [
+                    "rt_engTechID",
+                    "erba_engTechID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "erba_fuelTypeID"
+                  ],
+                  [
+                    "rt_ageGroupID",
+                    "erba_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "erba_mergedMeanBaseRateIM",
+                "a"
+              ]
+            }
+          },
+          "_comment": "J58 at meanBaseRateIM: the same seven key columns."
+        },
+        {
           "_comment": "And the rate itself, through the same selection. A rate row whose pollutant-process is age-resolved reads the age group's rate; one whose pollutant-process is not reads the single rate. `rt_hasRateByAge` is the discriminant in both, so the two lines cannot disagree about which table was used.",
           "lhs": "rtMode_rate",
           "rhs": {
@@ -72273,6 +72774,420 @@
               "wildcard_value": "rtMode_rateAgeless"
             }
           }
+        },
+        {
+          "_comment": "The I/M rate through the same selection as `rtMode_rate`.",
+          "lhs": "rtMode_rateIM",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "exact_else_wildcard",
+            "bindings": {
+              "has_exact": "rt_hasRateByAge",
+              "exact_value": "rtMode_rateByAgeIM",
+              "wildcard_value": "rtMode_rateAgeless"
+            }
+          }
+        },
+        {
+          "lhs": "rt_imModelYearGroupID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "y": {
+                "from": "pollutantprocessmodelyear_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "ppmy_polProcessID"
+                  ],
+                  [
+                    "rt_modelYearID",
+                    "ppmy_modelYearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppmy_IMModelYearGroupID",
+                "y"
+              ]
+            }
+          }
+        },
+        {
+          "lhs": "imc_inRun",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "imcoverage_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecyear_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "g",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rsc_countyID",
+                    "imc_countyID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "s",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rsy_yearID",
+                    "imc_yearID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "imc_useIM",
+                "i"
+              ]
+            }
+          },
+          "_comment": "BaseRateCalculator.sql's extract of IMCoverage: `countyID = ##county## AND yearID = ##year## AND useIMyn = 'Y'`."
+        },
+        {
+          "lhs": "imc_runPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "i"
+            ],
+            "ranges": {
+              "i": {
+                "from": "imcoverage_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": ">",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "imc_inRun",
+                        "i"
+                      ]
+                    },
+                    0.5
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "imc_polProcessID",
+                    "i"
+                  ]
+                },
+                -1.0
+              ]
+            }
+          },
+          "_comment": "A GATED KEY: the program's pollutant-process on the run's own rows, -1 (no pollutant-process) on the national table's other two million."
+        },
+        {
+          "lhs": "rt_imAdjustFract",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              },
+              "s": {
+                "from": "runspecyear_rows"
+              },
+              "i": {
+                "from": "imcoverage_rows"
+              },
+              "f": {
+                "from": "imfactor_rows"
+              },
+              "n": {
+                "from": "run_rows"
+              }
+            },
+            "join": [
+              {
+                "syms": [
+                  "b",
+                  "s"
+                ],
+                "on": [
+                  [
+                    "rt_yearOrdinal",
+                    "year_ordinal"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rt_polProcessID",
+                    "imc_runPolProcessID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "imc_sourceTypeID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "imc_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "g",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rsc_countyID",
+                    "imc_countyID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "s",
+                  "i"
+                ],
+                "on": [
+                  [
+                    "rsy_yearID",
+                    "imc_yearID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "i",
+                  "f"
+                ],
+                "on": [
+                  [
+                    "imc_polProcessID",
+                    "imf_polProcessID"
+                  ],
+                  [
+                    "imc_inspectFreq",
+                    "imf_inspectFreq"
+                  ],
+                  [
+                    "imc_testStandardsID",
+                    "imf_testStandardsID"
+                  ],
+                  [
+                    "imc_sourceTypeID",
+                    "imf_sourceTypeID"
+                  ],
+                  [
+                    "imc_fuelTypeID",
+                    "imf_fuelTypeID"
+                  ]
+                ]
+              },
+              {
+                "syms": [
+                  "b",
+                  "f"
+                ],
+                "on": [
+                  [
+                    "rt_imModelYearGroupID",
+                    "imf_IMModelYearGroupID"
+                  ],
+                  [
+                    "rt_ageGroupID",
+                    "imf_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "filter": {
+              "op": "and",
+              "args": [
+                {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "model_year_in_range",
+                  "bindings": {
+                    "model_year": {
+                      "op": "index",
+                      "args": [
+                        "rt_modelYearID",
+                        "b"
+                      ]
+                    },
+                    "first_model_year": {
+                      "op": "index",
+                      "args": [
+                        "imc_begModelYearID",
+                        "i"
+                      ]
+                    },
+                    "last_model_year": {
+                      "op": "index",
+                      "args": [
+                        "imc_endModelYearID",
+                        "i"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "index",
+                  "args": [
+                    "run_isDefaultDomain",
+                    "n"
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "imf_IMFactor",
+                        "f"
+                      ]
+                    },
+                    {
+                      "op": "*",
+                      "args": [
+                        0.01,
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_complianceFactor",
+                            "i"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "_comment": "baseratecalculator.go:580-628, its loop over IMCoverage rows and model years written as one join: rate row to program on (pollutant-process, source type, fuel) and the county and calendar year, program to IMFactor on its two keys, and IMFactor to the rate row on the I/M model-year group and the age group. `imf_IMFactor x (0.01 x complianceFactor)` in the Go's order. The rate row reaches a program through `imc_runPolProcessID`, which only the run's own county-year rows carry (docs/esm-conventions.md §134); the county and year pairs stay, for a run of several of either."
+        },
+        {
+          "lhs": "rtMode_imBlendedRate",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "b",
+              "m",
+              "g"
+            ],
+            "ranges": {
+              "b": {
+                "from": "rate_rows"
+              },
+              "m": {
+                "from": "operating_mode_rows"
+              },
+              "g": {
+                "from": "runspeccounty_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "im_mix",
+              "bindings": {
+                "rate_im": {
+                  "op": "index",
+                  "args": [
+                    "rtMode_rateIM",
+                    "b",
+                    "m"
+                  ]
+                },
+                "fraction_im": {
+                  "op": "index",
+                  "args": [
+                    "rt_imAdjustFract",
+                    "b",
+                    "g"
+                  ]
+                },
+                "rate_base": {
+                  "op": "index",
+                  "args": [
+                    "rtMode_rate",
+                    "b",
+                    "m"
+                  ]
+                }
+              }
+            }
+          },
+          "_comment": "The I/M blend, per county because IMCoverage is."
         },
         {
           "lhs": "rt_hasHotellingModes",
@@ -72967,9 +73882,10 @@
                 {
                   "op": "index",
                   "args": [
-                    "rtMode_rate",
+                    "rtMode_imBlendedRate",
                     "b",
-                    "m"
+                    "m",
+                    "g"
                   ]
                 }
               ]
@@ -131638,6 +132554,54 @@
           }
         },
         {
+          "lhs": "erba_inputMeanBaseRateIM",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              },
+              "u": {
+                "from": "inputemissionratebyage_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "erba_sourceBinID",
+                    "erbai_sourceBinID"
+                  ],
+                  [
+                    "erba_polProcessID",
+                    "erbai_polProcessID"
+                  ],
+                  [
+                    "erba_opModeID",
+                    "erbai_opModeID"
+                  ],
+                  [
+                    "erba_ageGroupID",
+                    "erbai_ageGroupID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "erbai_meanBaseRateIM",
+                "u"
+              ]
+            }
+          }
+        },
+        {
           "lhs": "erba_mergedMeanBaseRate",
           "rhs": {
             "op": "apply_expression_template",
@@ -131647,6 +132611,19 @@
               "match_count": "erba_inputRowCount",
               "input_value": "erba_inputMeanBaseRate",
               "default_value": "erba_meanBaseRate"
+            }
+          }
+        },
+        {
+          "lhs": "erba_mergedMeanBaseRateIM",
+          "rhs": {
+            "op": "apply_expression_template",
+            "args": [],
+            "name": "input_row_or_default",
+            "bindings": {
+              "match_count": "erba_inputRowCount",
+              "input_value": "erba_inputMeanBaseRateIM",
+              "default_value": "erba_meanBaseRateIM"
             }
           }
         },
@@ -132009,6 +132986,149 @@
           }
         },
         {
+          "lhs": "run_imProgramRowsUnchecked",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "imcoverage_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "runspecyear_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "imc_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "imc_yearID",
+                    "rsy_yearID"
+                  ],
+                  [
+                    "imc_polProcessID",
+                    "rspp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "or",
+                  "args": [
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        101.0
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        102.0
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        201.0
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        202.0
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        301.0
+                      ]
+                    },
+                    {
+                      "op": "==",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "imc_polProcessID",
+                            "i"
+                          ]
+                        },
+                        302.0
+                      ]
+                    }
+                  ]
+                },
+                0.0,
+                {
+                  "op": "index",
+                  "args": [
+                    "imc_useIM",
+                    "i"
+                  ]
+                }
+              ]
+            }
+          },
+          "_comment": "The programs at a pollutant-process no capture checks the blend at."
+        },
+        {
           "lhs": "run_imUnported",
           "rhs": {
             "op": "faq",
@@ -132023,10 +133143,40 @@
               }
             },
             "expr": {
-              "op": "index",
+              "op": "+",
               "args": [
-                "run_imProgramRows",
-                "n"
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "run_imProgramRows",
+                        "n"
+                      ]
+                    },
+                    {
+                      "op": "-",
+                      "args": [
+                        1.0,
+                        {
+                          "op": "index",
+                          "args": [
+                            "run_isDefaultDomain",
+                            "n"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "run_imProgramRowsUnchecked",
+                    "n"
+                  ]
+                }
               ]
             }
           }
