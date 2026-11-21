@@ -9164,6 +9164,137 @@ emissionRateByAge, and IMCoverage): e.g. `userdb-retrofit-multiyear` 145 s user 
 tools/check-conventions.py, faq-filter-lint.py, check-sources.py and check-reachability-counts.py
 (after `docs/omd-generator-reachability.md` took the four captures) pass.
 
+#### 7.3.83 Inspection and maintenance: the I/M rate blended in by the county's programs, at exhaust and venting (F96-F98)
+
+2026-11-21. Phase 6's fifth item, and F95's answer. **What MOVES 5 does, in order.** In a DEFAULT-domain
+run InputDataManager copies the default database's IMCoverage (filtered by year, county, state,
+pollutant-process, source type and fuel; InputDataManager.java:3230) and IMFactor (:3243) -- but
+only because `includeIMCoverage = includeFuelSupply` (:2816), which is false for SINGLE-county and
+PROJECT runs (:1435): there IMCoverage is the domain database's alone, and a user database's rows
+replace the whole default table, not its rows (:2817-2822). Then two calculators apply it.
+
+1. **BaseRateCalculator (Go) for THC, CO and NOx at running and start exhaust.** BaseRateCalculator.sql
+   extracts the county's IMCoverage at the calendar year with `useIMyn = 'Y'` (:424-442), IMFactor at
+   the run's pollutant-processes (:444-454) and pollutantProcessMappedModelYear for model years `year
+   - 40` to `year` (:456-461). baseratecalculator.go:580-628 builds, per (pollutant-process, model
+   year, source type, fuel), `IMAdjustFract = sum over programs of IMFactor x 0.01 x complianceFactor`,
+   IMFactor read at (pollutant-process, inspectFreq, testStandardsID, source type, fuel, I/M
+   model-year group, AGE group); a program with no IMFactor row adds nothing. BaseRateGenerator carries
+   `meanBaseRateIM` beside `meanBaseRate` through every weighting (BaseRateGenerator.java:347-469) and
+   BaseRateCalculator applies every adjustment to both (fuel ratios, criteria ratio, temperature and
+   humidity, A/C, start temperature), then blends at :1186-1196: `(1 - f) x meanBaseRate + f x
+   meanBaseRateIM`, and the same for emissionRate -- no clamp.
+2. **MultidayTankVaporVentingCalculator.sql for venting THC (112)** (`USE_MULTIDAY_DIURNALS`;
+   TankVaporVentingCalculator.sql is the superseded single-day form). TVV-1 builds the same fraction
+   (`IMCoverageMergedUngrouped`, stored as FLOAT); TVV-5 computes `tankVaporVentedIM` with
+   `coalesce(leakFractionIM, leakFraction)` (:1456) and carries it through the same hour-difference
+   clamp (:1509) as the leakFraction track; the hot-soak and operating modes read `meanBaseRateIM`
+   (:1799-1916); and the output rows are blended at :2029-2036, `GREATEST(quantIM x f + quant x (1 - f),
+   0)`.
+
+**What else the grep found, and why it is not live.** LiquidLeakingCalculator.sql has the same TVV-1
+and blend, but IMFactor has no row at leaks (113) -- IMCoverage has 9,729 -- so its inner join applies
+nothing anywhere (F97). CriteriaRunningCalculator.sql, CriteriaStartCalculator.sql and
+NH3Running/StartCalculator.sql carry I/M sections but BaseRateCalculator computes 101-302 in MOVES 5
+(the captures reproduce through it), and no IMCoverage row is at an NH3 pollutant-process.
+CreateExecutionRates.sql and calc/mwo/mwo.go only declare the `...IM` columns. PreAggSTATE/NATION.sql
+aggregate IMCoverage for state and nation runs, which this model refuses already.
+
+**Measured before porting.** The exhaust blend in pandas (`/scratch.local/ctessum/im/py/`): f from the
+capture's own IMCoverage, IMFactor, pollutantProcessMappedModelYear and ageCategory by the Go's
+algorithm, and `(1 - f) x O + f x O_IM` per output row, where O is the unported model's `im-cook` and
+O_IM the same model with every differing emissionRateByAge row's meanBaseRate replaced by its
+meanBaseRateIM (a scratch user input database through the LEV merge): all 11,784 rows at 1.022e-05,
+the same worst cell as the rows no program reaches, against 26.9% unblended (NMHC follows THC's f).
+So the blend is linear and per (pollutant-process, model year, source type, fuel), and moves to the
+zero-hour rate. Venting the same way, with the model's cold soak recomputed at `coalesce(leakFractionIM,
+leakFraction)` (a scratch cumTVVCoeffs): `max(0, C + f x (A - C))` reproduces every covered cell to
+1.5e-05 and no MOVES row is at the clamp. (The first venting measurement ran with a scratch input
+document that did not relay `n_outputRate`; the rerun is the one recorded.)
+
+**The port** (onroad/model.esm, lib/adjustments.esm). `rt_imAdjustFract[rate row, county]` is the
+Go's loop as one join: rate row to program on (pollutant-process, source type, fuel, county, year),
+program to IMFactor on its program keys, IMFactor to the rate row on the I/M model-year group
+(`rt_imModelYearGroupID`, the new `ppmy_IMModelYearGroupID`) and age group, filtered by the model-year
+range, times `run_isDefaultDomain`. `rtMode_imBlendedRate = im_mix(rtMode_rateIM, f, rtMode_rate)` is
+what `rtMode_weightedRate` now weights; `rtMode_rateIM` is the rate plus `rtMode_rateByAgeIMDelta`,
+J58 over the rows whose I/M rate differs (`erba_imPolProcessID`), and `erba_mergedMeanBaseRateIM`
+rides the LEV merge (InputDataManager copies a user row whole). Every adjustment between the read and
+the Go's blend is affine and shared by the two rates, so blending first is the same number. Venting's
+cold soak: the `tvv_*` chain gains an I/M track axis (`imtrack_rows`, 2) on which the leak fraction
+is `rt_leakFraction` or `rt_leakFractionIM` (NULL guarded by value), so the IM track takes the same
+clamps, and `rtDay_coldSoakWeightedRate` mixes the tracks with `im_mix`. `im_mix` is the unclamped
+blend in the Go's order and `im_blend` (the SQL calculators') is now `max(im_mix, 0)`, bit-identical
+to before. IMFactor is mounted in the three catalogues.
+
+**Captures** (moves.rs branch `capture-im`, host token `1ccc0236`, moves-snapshot/v2, capture binary
+rebuilt in the lane's scratch). Cook County, Illinois (17031), DEFAULT domain, 2020, August, weekday,
+no input database; source types 11 (no program), 21, 31, 32 and 52, every fuel MOVES adds.
+
+| run | what it checks | result | cost (user CPU, wall, peak RSS) |
+|---|---|---|---|
+| `im-cook` (260 MB) | THC, CO, NOx, NMHC at running and start, hour 7, road types 1 and 5: programs at 21/31/32 (1996-2016, IMFactor 1) and 52 (1968-2015, fractions 0.23-0.94 by I/M model-year group), cohorts outside the range, uncovered fuels and 11 | 11,784 of 11,784, worst cell 1.022e-05 | 134 s, 2:58, 5.1 GB |
+| `im-cook-venting` (224 MB) | venting THC, every hour: 21/31/32 programs (fractions 0.045-0.58 by age), 52's program with no IMFactor row (applies nothing, F97) | 13,152 of 13,152, worst cell 1.974e-05; 121 cells under a scoped `cell_exception`, see below | 130 s, 2:47, 4.4 GB |
+| `rates-im` (992 MB) | `im-cook` at Rates scale for 11, 21, 52 | RatePerDistance 68,380 rows / 205,140 cells at 6.787e-06, RatePerStart 1,052 at 5.239e-06, RatePerVehicle 1,052 at 9.731e-06, StartsPerVehicle 276 at 9.838e-06 | 130 s, 2:34, 4.1 GB |
+
+Every run key-exact, shape check passing, `run_selectionUnported` 0. Unported, `im-cook` is 6.4-11.7%
+high per pollutant (THC 10.0%, CO 11.7%, NOx 6.4%, NMHC 9.9%) and `im-cook-venting` 0.5% (up to 13.9%
+on a cell).
+
+**The exception.** `im-cook-venting` holds 121 cells to 5e-5, none in a program and every one
+identical before the port: 119 motorcycle cells on the off-network road at hours 5, 6, 8 and 14 -- the
+`rates-venting` mechanism, MOVES's FLOAT soakActivityFraction leaving mode 300 a +3.5e-7 to +5.0e-7
+weight, with MOVES high at every cell of those hours by about 100x the weight -- and the two oldest 52
+cohorts at hour 8 (2.4e-5, 2.3e-5), which are not that mechanism; MOVES's FLOAT `tankVaporVented`
+differenced hour on hour is the likely one, not measured cell by cell. tolerance.toml says so.
+
+**Finding F96: MOVES writes RatePerDistance 0 where the row has no activity, and the model wrote the
+rate.** Cook's ZoneRoadType gives road types 2 and 3 an SHOAllocFactor of 0, and its motorcycles no
+off-network idle; MOVES writes 0 at all 33,664 rural rows and at the 164 motorcycle idle rows of
+`rates-im`, the model wrote the unweighted rate. Every earlier Rates capture is in Washtenaw, whose
+road types all carry SHO. `rpd_ratePerDistance` now writes 0 where `out_SHO` is 0.
+
+**Finding F97: an IMCoverage row IMFactor does not key applies nothing.** Both the Go (`continue`) and
+the SQL (inner join) drop it: every leaks (113) program, and Cook's venting program for 52. The model's
+join drops it the same way; 113 stays counted because no capture shows it.
+
+**Finding F98: a program's fraction is not its compliance factor.** IMFactor is keyed on the I/M
+model-year GROUP and the AGE group: Cook's 52 THC running program (compliance 93.7%) gives 0.937 at
+model year 1980 (group 1950-1980), 0.228 at 1981-1995 and 0.644-0.654 from 1996; its 21/31/32 programs
+give the compliance factor (IMFactor 1) at 1996-2016; venting's IMFactor is 0.06-0.66 by age. And
+IMAdjustFract is a SUM over programs, so two programs at one key add.
+
+**Refusals.** `run_imUnported` now counts what is not ported: every program row in a SINGLE-county or
+PROJECT run (the domain database's IMCoverage, which no catalogue mounts) and every program row at a
+pollutant-process other than the seven the captures check (`run_imProgramRowsUnchecked`). Not
+captured and not counted: a user database stating IMCoverage in a DEFAULT-domain run (it replaces the
+default table WHOLE, :2817; no catalogue here declares one), and more than one county or program at
+one key (the join sums them as the Go does).
+
+**Cost.** The first port peaked `im-cook` at 14-16 GB against 4.6 GB: `ESS_JOIN_GATE_LOG` showed the
+program-to-IMFactor clause pairing the whole national IMCoverage (2,024,874 rows) with IMFactor,
+258,722,042 pairs, before the county and year narrowed it. Joined through a key only the run's own
+county-year rows carry (`imc_runPolProcessID`) it is the run's 44 programs (conventions §134).
+
+**Unchanged.** Re-emitted with tools/emit-oracle-table.py and `cmp`'d against the main tree's
+`.fixtures-run/` (main da7c99b, whose suite ended green): 79 runs -- every RunSpec at THC, CO or NOx
+running or start exhaust, every evaporative one, the four LEV runs, the two multi-county default-domain
+runs (`expand-counties`, `expand-counties-large`, which reach Cook at pollutants no program covers),
+every Rates run the F96 change could reach (`rates-running`, `-start`, `-evap`, `-venting`, `-lev`,
+`-retrofit`, `-pm`, `-hotelling`, the four `rates-project-*`) and controls (`process-tirewear`,
+`expand-day`, `process-brakewear`, `process-refueling`, `scale-county`, `expand-sourcetype`,
+`process-pm-exhaust`, `rates-wear`, `scale-project`, `process-extended-idle`) -- 317 files (output
+relation, shape scalars, every oracle table), every one byte-identical, every run reproducing its
+oracle with `run_selectionUnported` 0. The 15 fixture documents on the execution-database catalogue
+emit byte-identical relations, and the 7c spike's is byte-identical too (after the catalogues read
+the snapshots' DECIMAL-as-text I/M columns as floats; without that the spike refused to build). Cost
+of the existing runs, against §7.3.82's: `userdb-lev` 80 s / 2.96 GB to 88 s / 3.57 GB,
+`userdb-retrofit-multiyear` 145 s / 5.4 GB to 149 s / 5.8 GB, `scale-county-start-species` 61 s / 3.4 GB
+to 75 s / 3.7 GB, `scale-county-evap-species` 185 s / 6.7 GB to 201 s / 7.7 GB (the venting chain's
+second track, the blended array, the I/M delta). The Python binding loads the three new runspecs.
+tools/check-conventions.py, faq-filter-lint.py, check-sources.py and check-reachability-counts.py
+(after `docs/omd-generator-reachability.md` took the three captures) pass.
+
 ### 7.4 Upstream asks
 
 **None is blocking.** This section has said "still none", "already exists,
