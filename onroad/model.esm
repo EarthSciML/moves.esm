@@ -18038,7 +18038,7 @@
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "The I/M rate the blend mixes in, through the same selection as `rtMode_rate`: the age group's meanBaseRateIM where the pollutant-process is age-resolved, and the ageless rate otherwise -- no I/M program covers an ageless pollutant-process (IMFactor has rows at THC, CO and NOx running and start and at venting THC alone, all age-resolved), so there the blend fraction is 0 and the second arm is never weighted."
+          "description": "The I/M rate the blend mixes in: `rtMode_rate` plus the age group's I/M delta (`rtMode_rateByAgeIMDelta`) where the pollutant-process is age-resolved, `rtMode_rate` itself otherwise -- no I/M program covers an ageless pollutant-process (IMFactor has rows at THC, CO and NOx running and start and at venting THC alone, all age-resolved)."
         },
         "rt_imModelYearGroupID": {
           "type": "unknown",
@@ -18085,14 +18085,22 @@
           ],
           "description": "The zero-hour rate read from `emissionratebyage` at the cohort's age group. THIS is where deterioration enters an onroad criteria rate: a 1980 passenger car and a 2020 one read the same source bin and different rows. It reads the MERGED rate (`erba_mergedMeanBaseRate`): a user input database's emissionRateByAge -- MOVES 5's LEV and NLEV tables -- replaces the default row at its key (PLAN.md §7.3.82)."
         },
-        "rtMode_rateByAgeIM": {
+        "erba_imPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "emissionratebyage_rows"
+          ],
+          "description": "`erba_polProcessID` on an emissionRateByAge row whose merged I/M rate differs from its merged rate, -1 elsewhere: the key `rtMode_rateByAgeIMDelta` joins on, so the I/M rate costs a join only over the rows where it is a different number (docs/esm-conventions.md §134). Every other row's I/M rate IS its rate."
+        },
+        "rtMode_rateByAgeIMDelta": {
           "type": "unknown",
           "units": "1",
           "shape": [
             "rate_rows",
             "operating_mode_rows"
           ],
-          "description": "`rtMode_rateByAge` at meanBaseRateIM: the zero-hour rate of an I/M-inspected vehicle, read from `emissionratebyage` on the same seven keys (`erba_mergedMeanBaseRateIM`). BaseRateGenerator carries it beside meanBaseRate through every weighting (BaseRateGenerator.java:347-469: `sum(sourceBinActivityFraction x meanBaseRateIM)`), and BaseRateCalculator through every adjustment, until the I/M blend (PLAN.md §7.3.83)."
+          "description": "meanBaseRateIM - meanBaseRate at the rate row's emissionRateByAge row, on J58's seven keys through `erba_imPolProcessID`; 0 where the row's two rates agree. Written as a delta rather than as a second read of the whole table: the second J58 doubled `im-cook`'s peak memory (4.6 GB to 14 GB) for a column equal to the first on seven rows in eight (PLAN.md §7.3.83)."
         },
         "rtMode_fullACAdjustment": {
           "type": "unknown",
@@ -23852,7 +23860,7 @@
           "shape": [
             "rateoutput_rows"
           ],
-          "description": "RatePerDistance.ratePerDistance: BaseRateOutput's emissionRate (`rpdEmissionRate`), except an evaporative row on a PROJECT link, which is MOVESOutput over that row's distance (`out_emissionQuant / rto_distance`), the post-processor's second INSERT. On link 1 of `rates-project-evap-links` that is the rate per SourceHour over 1 mile, not over 30 mph (PLAN.md §7.3.59)."
+          "description": "RatePerDistance.ratePerDistance: BaseRateOutput's emissionRate (`rpdEmissionRate`), except an evaporative row on a PROJECT link, which is MOVESOutput over that row's distance (`out_emissionQuant / rto_distance`), the post-processor's second INSERT. On link 1 of `rates-project-evap-links` that is the rate per SourceHour over 1 mile, not over 30 mph (PLAN.md §7.3.59). 0 where the output row's SHO is 0 (finding F96): `rates-im`, in Cook County, whose rural road types carry no SHO, is the first Rates capture with such a row -- every one of its 33,664 rural-road rows (16,832 at each of road types 2 and 3) and its motorcycles' 164 off-network idle cells are 0 in MOVES, and were the unweighted rate here."
         },
         "rpd_inTable": {
           "type": "unknown",
@@ -72919,7 +72927,56 @@
           "_comment": "J58: the age-resolved rate, on seven key columns -- the four source-bin slots, the pollutant-process, the operating mode and the age group."
         },
         {
-          "lhs": "rtMode_rateByAgeIM",
+          "lhs": "erba_imPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "a"
+            ],
+            "ranges": {
+              "a": {
+                "from": "emissionratebyage_rows"
+              }
+            },
+            "expr": {
+              "op": "ifelse",
+              "args": [
+                {
+                  "op": "!=",
+                  "args": [
+                    {
+                      "op": "index",
+                      "args": [
+                        "erba_mergedMeanBaseRateIM",
+                        "a"
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "erba_mergedMeanBaseRate",
+                        "a"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "erba_polProcessID",
+                    "a"
+                  ]
+                },
+                -1.0
+              ]
+            }
+          },
+          "_comment": "A gated key: the row's pollutant-process where its I/M rate differs, -1 elsewhere."
+        },
+        {
+          "lhs": "rtMode_rateByAgeIMDelta",
           "rhs": {
             "op": "faq",
             "args": [],
@@ -72944,7 +73001,7 @@
                 "on": [
                   [
                     "rt_polProcessID",
-                    "erba_polProcessID"
+                    "erba_imPolProcessID"
                   ],
                   [
                     "om_opModeID",
@@ -72974,14 +73031,26 @@
               }
             ],
             "expr": {
-              "op": "index",
+              "op": "-",
               "args": [
-                "erba_mergedMeanBaseRateIM",
-                "a"
+                {
+                  "op": "index",
+                  "args": [
+                    "erba_mergedMeanBaseRateIM",
+                    "a"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "erba_mergedMeanBaseRate",
+                    "a"
+                  ]
+                }
               ]
             }
           },
-          "_comment": "J58 at meanBaseRateIM: the same seven key columns."
+          "_comment": "J58 at meanBaseRateIM - meanBaseRate, through `erba_imPolProcessID`: a rate row meets only the emissionRateByAge rows whose I/M rate differs (198,133 of the default's 1,590,830, at seven pollutant-processes), and none at all in a run that selects no I/M pollutant-process."
         },
         {
           "_comment": "And the rate itself, through the same selection. A rate row whose pollutant-process is age-resolved reads the age group's rate; one whose pollutant-process is not reads the single rate. `rt_hasRateByAge` is the discriminant in both, so the two lines cannot disagree about which table was used.",
@@ -72998,17 +73067,23 @@
           }
         },
         {
-          "_comment": "The I/M rate through the same selection as `rtMode_rate`.",
+          "_comment": "The I/M rate: the rate plus the age group's I/M delta where the pollutant-process is age-resolved.",
           "lhs": "rtMode_rateIM",
           "rhs": {
-            "op": "apply_expression_template",
-            "args": [],
-            "name": "exact_else_wildcard",
-            "bindings": {
-              "has_exact": "rt_hasRateByAge",
-              "exact_value": "rtMode_rateByAgeIM",
-              "wildcard_value": "rtMode_rateAgeless"
-            }
+            "op": "+",
+            "args": [
+              "rtMode_rate",
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "exact_else_wildcard",
+                "bindings": {
+                  "has_exact": "rt_hasRateByAge",
+                  "exact_value": "rtMode_rateByAgeIMDelta",
+                  "wildcard_value": 0.0
+                }
+              }
+            ]
           }
         },
         {
@@ -73272,6 +73347,18 @@
                 ],
                 "on": [
                   [
+                    "rt_polProcessID",
+                    "imf_polProcessID"
+                  ],
+                  [
+                    "rt_sourceTypeID",
+                    "imf_sourceTypeID"
+                  ],
+                  [
+                    "rt_fuelTypeID",
+                    "imf_fuelTypeID"
+                  ],
+                  [
                     "rt_imModelYearGroupID",
                     "imf_IMModelYearGroupID"
                   ],
@@ -73348,7 +73435,7 @@
               ]
             }
           },
-          "_comment": "baseratecalculator.go:580-628, its loop over IMCoverage rows and model years written as one join: rate row to program on (pollutant-process, source type, fuel) and the county and calendar year, program to IMFactor on its two keys, and IMFactor to the rate row on the I/M model-year group and the age group. `imf_IMFactor x (0.01 x complianceFactor)` in the Go's order. The rate row reaches a program through `imc_runPolProcessID`, which only the run's own county-year rows carry (docs/esm-conventions.md §134); the county and year pairs stay, for a run of several of either."
+          "_comment": "baseratecalculator.go:580-628, its loop over IMCoverage rows and model years written as one join: rate row to program on (pollutant-process, source type, fuel) and the county and calendar year, program to IMFactor on its two keys, and IMFactor to the rate row on the I/M model-year group and the age group. `imf_IMFactor x (0.01 x complianceFactor)` in the Go's order. The rate row reaches a program through `imc_runPolProcessID`, which only the run's own county-year rows carry (docs/esm-conventions.md §134); the county and year pairs stay, for a run of several of either. The IMFactor clause carries the rate row's pollutant-process, source type and fuel as well as the two model-year keys: on those two alone a rate row matched ~1,200 IMFactor rows (every program's) and `im-cook` peaked at 14 GB."
         },
         {
           "lhs": "rtMode_imBlendedRate",
@@ -121879,16 +121966,35 @@
                   ]
                 },
                 {
-                  "op": "index",
+                  "op": "ifelse",
                   "args": [
-                    "rpdEmissionRate",
-                    "x"
+                    {
+                      "op": ">",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "out_SHO",
+                            "o"
+                          ]
+                        },
+                        0.0
+                      ]
+                    },
+                    {
+                      "op": "index",
+                      "args": [
+                        "rpdEmissionRate",
+                        "x"
+                      ]
+                    },
+                    0.0
                   ]
                 }
               ]
             }
           },
-          "_comment": "RatePostProcessorRatesFirst.sql's two INSERTs into RatePerDistance. The second -- MOVESOutput over MOVESActivityOutput's distance, for permeation, venting and leaks off road type 1 -- is written here in PROJECT domain, where ProjectTAG's SourceHours on a link is SHO without the travel-time share and so the evaporative rate over the link's speed is not the quotient; in DEFAULT domain the two are the same number and the first INSERT's expression stands."
+          "_comment": "RatePostProcessorRatesFirst.sql's two INSERTs into RatePerDistance. The second -- MOVESOutput over MOVESActivityOutput's distance, for permeation, venting and leaks off road type 1 -- is written here in PROJECT domain, where ProjectTAG's SourceHours on a link is SHO without the travel-time share and so the evaporative rate over the link's speed is not the quotient; in DEFAULT domain the two are the same number and the first INSERT's expression stands. A row whose source-hours operating are ZERO -- a road type the county's zone allocates no SHO to (ZoneRoadType.SHOAllocFactor 0: Cook County's rural roads, 2 and 3), or a source type with no off-network idle (Cook's motorcycles) -- is written 0: MOVES writes no rate where there is no activity (finding F96, PLAN.md §7.3.83)."
         },
         {
           "lhs": "rpdKeptBin",
