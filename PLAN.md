@@ -859,7 +859,7 @@ came out of the pair.
 ### Phase 6 — Control strategies
 
 AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV
-(`moves.rs/docs/control-strategies.md`). Deferred deliberately: none of the 39
+(`moves.rs/docs/control-strategies.md`, whose Rate-of-Progress section is not what MOVES does: §7.3.81). Deferred deliberately: none of the 39
 fixtures exercises them, so this is scope beyond reproducing the examples.
 
 **Status 2026-11-20: AVFT is ported** (§7.3.78, conventions §129). MOVES 5 runs
@@ -879,6 +879,15 @@ Rate-of-Progress and LEV are not ported.
 §7.3.80 closed the pre-existing multi-class RatePerDistance gap, F91). What no capture checks -- other processes,
 `aggregateBy`, PROJECT domain, summed output steps, and a table MOVES switches off --
 stays counted (`run_retrofitUnported`).
+
+**Rate-of-Progress: refused 2026-11-20 (§7.3.81, finding F92).** MOVES 5.0.1 cannot run it:
+spDoRateOfProgress selects `hcSpeciation.fuelMYGroupID`, which MOVES 5's hcSpeciation does not have,
+aborts after rewriting `year.fuelYearID` alone, logs ERROR and leaves MOVESOutput empty
+(`scale-county-rop-running` against its twin). There is no oracle to port it against, so the
+RunSpec's strategy is now READ -- `db_runspecinternalcontrolstrategy`, a per-run declaration mounted
+empty everywhere (conventions §132) -- and every run that turns it on is counted
+(`run_ropUnported`, inside `run_selectionUnported`) instead of being read as strategy-off. LEV and
+nonroad retrofit are not ported.
 
 ---
 
@@ -1061,8 +1070,9 @@ blocks what.
    `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
 
 Phase 6 (control strategies) stayed deferred until 2026-11-20, when AVFT
-(§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures; see
-§3's Phase 6 for its status.
+(§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures and
+Rate-of-Progress, which MOVES 5.0.1 itself fails to run, was made a counted
+refusal (§7.3.81); see §3's Phase 6 for its status.
 
 ### 6.1 What the fidelity gate now consists of
 
@@ -8915,6 +8925,128 @@ retrofit's factors were measured against (§7.3.79) in the suite. Cost: `rates-r
 over rate rows joined to their own cohort.
 
 **Unchanged:** re-emitted from this branch with tools/emit-oracle-table.py and `cmp`'d: all 16 `rates-*` runs and `scale-rates` (every Rates table and the output relation), `scale-county-retrofit`, `userdb-retrofit-multiyear`, `scale-county`, `process-tirewear` and `process-pm-exhaust` -- 129 files, every one byte-identical to its baseline (the base commit 8f51d42's own emission, the retrofit lane's 8f51d42-equivalent output, or the main checkout's suite-014 `.fixtures-run`), every one reproducing its oracle and its shape with `run_selectionUnported` 0. `rates-retrofit` differs from its 8f51d42 emission in RatePerDistance only, at exactly the 52,864 cells that were wrong (52 gasoline 17,472, 52 diesel 18,368, 62 diesel 17,024; none on road type 1, none on CNG); its other five tables and the output relation are byte-identical. Peak RSS over the 24 evaluations 8.9 GB (`scale-county-retrofit`).
+
+#### 7.3.81 Rate-of-Progress: MOVES 5.0.1 cannot run it, so a RunSpec that asks for it is read and refused, not ported (F92)
+
+2026-11-20. Phase 6's third strategy, and the first one MOVES itself fails. RateOfProgressStrategy
+("Compute Rate-of-Progress 'No Clean Air Act Amendments' Emissions") is the one internal control
+strategy MOVES 5 takes from the RUNSPEC rather than from a table: an `<internalcontrolstrategy
+classname="...rateofprogress.RateOfProgressStrategy">` whose TSV text says `useParameters\tYes`
+(RateOfProgressStrategy.acceptTSV). Before this section nothing in the repository read that
+element -- every one of the 129 moves.rs fixture XMLs carries it empty -- so a Rate-of-Progress
+RunSpec would have been read as strategy-off, silently. moves.rs's `moves-rate-of-progress` crate
+(a CSV of per-cohort `reductionFraction`s) describes nothing MOVES does and was not used.
+
+**What the strategy is written to do** (database/RateOfProgressStrategy.sql, spDoRateOfProgress,
+mode 0; identical in the cache and in `/opt/moves` of canonical-moves.sif). cutPoint =
+modelYearCutPoints 'RateOfProgress' (1993 in the default database); cutPointFuelYear = the fuel year of
+the latest year at or before it (1990). Then: `year.fuelYearID` = 1990 for every year after 1993;
+fuelSupply and fuelUsageFraction keep only their earliest fuel year at or after 1990, relabelled
+1990; generalFuelRatioExpression rows starting after 1993 deleted and rows spanning it extended to
+2060; pollutantProcessModelYear's three groups, sourceTypeModelYear's AC penetration,
+sourceTypeTechAdjustment's refueling adjustment and crankcaseEmissionRatio copied from the cut-point
+year to every later model year; and, through a model-year-group decode (single years, 1972 =
+1950-1972, 0 = 1950-2060, YYYYyyyy ranges; cutoffFlag -1/0/+1), the values of the group containing
+1993 copied into every group entirely after it in nineteen tables (baseFuel, cumTVVCoeffs,
+fuelModelWtFactor, meanFuelParameters, noNO2Ratio, sourceTypeModelYearGroup, startTempAdjustment,
+sulfateEmissionRate, sulfurBase, sulfurModelCoeff, hcPermeationCoeff, hcSpeciation, dioxin and metal
+emission rates, methaneTHCRatio, minorHAPRatio, the two PAH ratios, ATRatioNonGas).
+
+**When it runs** (MOVES 5.0.1 MasterLoop.java:206-300, MOVESInstantiator.java:1527-1600). Every input
+database is merged first (user databases, then the domain database, then the default), then
+preaggregation, then `initializeAfterExecutionDatabase` (FillExecution.sql and UpdateExecution.sql,
+which builds RegClassSourceTypeFraction from fuelUsageFraction), then DefaultDataMaker; only then
+`performInstantiation` subscribes every calculator and generator and, after them, the internal
+control strategies, in the class-name order of a TreeMap: AVFTControlStrategy (`...avft...`), then
+OnRoadRetrofitStrategy, then RateOfProgressStrategy, whose `subscribeToMe` runs the SQL at once.
+So the strategy would see the merged county or project tables and AVFT's rewritten
+sampleVehiclePopulation, every generator's `executeLoop` and every worker bundle would read its
+rewrite, and RegClassSourceTypeFraction would keep the pre-strategy fuelUsageFraction (AVFT reruns
+UpdateExecution before the strategy, not after). The pre-strategy relation a port would start from
+is where the model already reads it: the default-database family (every `scale-county*`,
+`project-*`, `userdb-*` and Rates county run) reads `movesdb` and the county input, untouched; only
+the fixture catalogue reads post-run execution tables, which the rewrite, being idempotent, would
+leave a fixed point.
+
+**Finding F92: MOVES 5.0.1's Rate-of-Progress strategy aborts, and its run emits nothing.** The
+decode's sixteenth insert is `select distinct fuelMYGroupID, 'hcSpeciation' from hcSpeciation`, and
+MOVES 5's hcSpeciation has no such column (it is keyed by `regClassID, beginModelYearID,
+endModelYearID`; `movesdb/HCSpeciation.parquet`). The stored procedure fails there -- "Failed to
+execute script: call spDoRateOfProgress(); ... Unknown column 'fuelMYGroupID' in 'SELECT'" -- after its
+first statements and before every rewrite but one: `update year set fuelYearID=1990 where yearID >
+1993` has already run, against MyISAM, with no transaction to undo it. RateOfProgressStrategy logs
+`ERROR: Unable to execute script` and MOVES goes on. The calendar year now points at fuel year 1990,
+and InputDataManager copied only the run's own fuel year (2020) into fuelSupply and fuelUsageFraction
+(`buildSQLWhereClauseForFuelYears`), so FuelEffectsGenerator logs "Skipping fuelTypeID 1 because it is
+not used in the fuel supply" for every fuel, and no fuel-weighted table is written at all.
+
+Measured on a capture against its twin (moves.rs branch `capture-rop`, host token `1ccc0236`,
+moves-snapshot/v2, capture binary rebuilt in the lane's scratch):
+`scale-county-rop-running` is setup-timeagg.sql's county database, July 2020, weekday, hour 7, 21
+gasoline and 62 diesel, THC, CO, NOx, NO, NO2, methane, NMHC and energy at running exhaust, CO, NOx,
+NO and NO2 at start, THC, CO and NOx at the three crankcase processes and at extended idle, with the
+strategy on; `scale-county-rop-running-base` is the same RunSpec with it off (208 MB). The standard
+pipeline refuses the first -- run-fixture.sh's log scan finds the ERROR line and writes no snapshot,
+which is the right policy and is the result -- so it was captured once more with that one line
+exempted from `lib/moves-log-scan.sh` (reverted; 0 rows of output). Execution tables that differ:
+
+| table | strategy on | twin |
+|---|---|---|
+| `year` | 63 rows, 62 rewritten (fuelYearID 1990 for every year after 1993) | 63 |
+| `tempmodelyear`, `tempmodelyeargroupdecode` | present (the procedure's work tables; the decode is never dropped) | absent |
+| criteriaRatio, altCriteriaRatio, generalFuelRatio, tempCOA | 0 rows | 3,975 / 60 / 156 / 82 |
+| baseRate_1/90_2020, baseRateByAge_1/2_2020, sbWeightedEmissionRate | 0 rows | 1,095 / 376 / 3,270 / 3,488 / 376 |
+| sourceBinDistributionFuelUsage_1/2/90_26161_2020 | 0 rows | 1,226 / 788 / 876 |
+| MOVESOutput | **0 rows** | 10,189 |
+
+Every other input table is the twin's (drivingIdleFraction differs in the last two digits, MOVES's
+own nondeterminism). pollutantProcessModelYear, fuelSupply, the nineteen model-year-group tables:
+untouched. A second Rate-of-Progress capture, `scale-county-start-species` with the strategy on, failed
+identically (the same "Unknown column" line); the planned evaporative and minor-HAP twins were then
+not attempted and their recipes dropped. The failure is in the procedure, unconditionally, so every
+MOVES 5.0.1 run that turns the strategy on fails this way.
+
+**So there is nothing to port it against, and it is refused.** A port of the SQL as written would
+reproduce a strategy MOVES 5.0.1 has never run, measured against no oracle; a port of what MOVES 5.0.1
+does would be "emit an empty table after an ERROR". Neither is a reproduction, so the run is counted:
+`run_ropUnported`, inside `run_selectionUnported`, is `run_rateOfProgress` (every run with the
+strategy on), and `tools/check-runspec-shape.py` says why.
+
+**How the setting reaches the model** (the first commit of the lane, b674177). MOVES writes the
+RunSpec's strategies nowhere in the execution database (the procedure's work tables survive in it,
+but only because it ran), so the setting is a per-run DECLARATION, the way `runspecdomain` is
+(§7.3.40): `db_runspecinternalcontrolstrategy`, one row per `<internalcontrolstrategy>` -- its
+`className` and its `useParameters` value -- written from the RunSpec by
+`tools/build-scale-input-db.py --internal-control-strategies <runspec.xml> <outdir>`, decoded by two
+`codes` maps (`unmapped: 0`), and summed into `run_ropStrategyRows` / `run_rateOfProgress` (a sum, not
+a max: a max over the empty table is the semiring's -infinity). It is declared EMPTY once, in
+`inputs/default-domain/runspecinternalcontrolstrategy.parquet`, by `onroad/default-database.esm`, the
+fixture catalogue and the 7c spike; a RunSpec that turns the strategy on declares its own copy, which
+wins the name clash (conventions §119.4), and `tools/check-sources.py` check 7 compares each
+`runspecs/` document's declaration with its fixture XML, so a document that forgot it fails the
+suite instead of reading strategy-off. A probe -- `scale-county-start-species` with the strategy
+declared on -- read `run_selectionUnported` 1; the same run without it 0, byte-identical.
+
+**What a port would need, if a later MOVES fixes the SQL** (written down, not measured, because no
+capture can measure it): the decode would read hcSpeciation by its begin/end model years; a table
+with two groups holding the cut point (group 0 is 1950-2060, flag 0, beside a group starting at or
+before 1993) gives MySQL's multi-table UPDATE several source rows per key, and which one wins is
+scan order; the fuel-year rewrite keeps a single-year run's OWN fuels (the earliest run fuel year at
+or after 1990 is the run's, relabelled), and changes a multi-year run's later years to its earliest
+year's fuels; and `regionCounty`, which InputDataManager also filters by fuel year, is not relabelled.
+The rewrite would be derived columns behind `run_rateOfProgress` exactly as conventions §129 says,
+over the pristine `movesdb` the default-database family already reads.
+
+**Unchanged.** The model gained four variables, a metaparameter, an index set and one term of
+`run_selectionUnported`, and every catalogue one empty data source. Re-emitted with
+tools/emit-oracle-table.py and `cmp`'d against the main tree's `.fixtures-run/` (main b38897c):
+15 runs -- `process-tirewear`, `process-evap-permeation`, `process-refueling`, `process-crankcase-running`, `chain-so2-co2e-mechanism`, `expand-sourcetype`, `expand-multiyear`, `project-avft`, `project-crankcase`, `rates-pm`, `rates-project` (every Rates table), `scale-county-avft`, `scale-county-evap-species`, `scale-county-start-species`, `userdb-retrofit-multiyear` -- 55 files (output relation, shape scalars, every oracle table), every one byte-identical, every run reproducing its oracle key-exact with `run_selectionUnported` 0; the 7c spike's relation byte-identical too. Cost unchanged (one empty table): e.g. `scale-county-evap-species` 185 s user CPU at 6.7 GB peak RSS, `userdb-retrofit-multiyear` 140 s / 5.2 GB, `scale-county-start-species` 57 s / 3.2 GB. The Python binding loads `scale-county-start-species` and `process-tirewear`. tools/check-conventions.py, faq-filter-lint.py, check-sources.py (with its new check 7), check-source-cache.py, check-reachability-counts.py and calculator-coverage.py --check pass.
+
+**Not done:** the snapshots `scale-county-rop-running` (forced) and `-running-base` were NOT copied
+into the main checkout's corpus. The first is a run MOVES reports as failed and the pipeline refuses;
+the second is valid but nothing in moves.esm reads it, and adding either would move the corpus counts
+`docs/omd-generator-reachability.md` checks. Both stay in `/scratch.local/ctessum/rop/snapshots/`
+(node `ccc0236`) and are regenerable from the committed recipe.
 
 ### 7.4 Upstream asks
 

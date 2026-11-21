@@ -10049,3 +10049,32 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    intermediate tables** (`baseRateByAge_<process>_<year>` holds the per-class rate,
    `sourceBinDistributionFuelUsage_*` the weights): model/MOVES = sum E / sum wE to 6e-06 at
    every cell before an equation changed.
+
+## 132. A strategy the RunSpec switches on is a declared table every catalogue mounts empty, and a strategy the reference cannot run is a refusal, not a port **[PLAN.md §7.3.81; F92; `scale-county-rop-running` captured against its twin `scale-county-rop-running-base`: MOVES 5.0.1 rewrites `year` alone and emits 0 rows; every earlier run byte-identical]**
+
+1. **A setting MOVES never writes to the execution database is a per-run declaration, mounted
+   empty once and shadowed by the run that sets it.** Rate-of-Progress is the RunSpec's
+   `<internalcontrolstrategies>`; AVFT and retrofit are tables (§129, §130). The datum the flag
+   stands for is the element itself -- one row per strategy, its class name and its `useParameters`
+   value -- so `db_runspecinternalcontrolstrategy` is written from the RunSpec by
+   `tools/build-scale-input-db.py`, as `runspecdomain` is, declared with zero rows in the three
+   documents that declare every table the model reads (`onroad/default-database.esm`, the fixture
+   catalogue, the 7c spike), and redeclared by a RunSpec that turns a strategy on (§119.4). Every
+   run without one is the degenerate case and verifies the change.
+2. **A declaration only the author can forget needs a check against the reference's own input.**
+   Nothing in a snapshot says the strategy was asked for, so `tools/check-sources.py` compares each
+   `runspecs/` document's declaration with its fixture XML; the alternative was a run read as
+   strategy-off without a sound.
+3. **Sum a flag over a table that may be empty; never max it.** The max semiring's identity is
+   -infinity, so a max over the empty strategy table is not 0. `run_ropStrategyRows` sums and a
+   threshold makes the switch.
+4. **Capture the strategy before designing its port; the reference may not run it.** MOVES 5.0.1's
+   spDoRateOfProgress selects a column (`hcSpeciation.fuelMYGroupID`) its own schema dropped, aborts
+   after its first UPDATE, logs ERROR and leaves MOVESOutput empty. Reading the SQL said "about 25
+   table rewrites"; one capture said "one rewrite, then nothing" -- and the capture pipeline's log
+   scan refusing to write the snapshot was the first sign, not an obstacle. A twin with the strategy
+   off is still the instrument: the diff of the two execution databases is exactly what ran.
+5. **What the reference cannot do is counted, permanently, with the reason in the counter's
+   description.** Porting the SQL as written would reproduce a strategy no MOVES 5 run has ever
+   executed, against no oracle; porting the failure would emit an empty table after an ERROR. The
+   model emits neither: `run_ropUnported` counts every run with the strategy on.

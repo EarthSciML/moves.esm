@@ -39,6 +39,14 @@ forgetting one column is both easy and silent.
      by coincidence, which is how a note claiming brakewear's polProcessID
      survived in the NOx fixture -- both tables have 23 rows.
 
+  7. a `runspecs/` document's Rate-of-Progress setting is its RunSpec's. MOVES
+     writes the RunSpec's `<internalcontrolstrategies>` nowhere in the execution
+     database, so the model reads it from `db_runspecinternalcontrolstrategy`,
+     which a RunSpec turning the strategy on declares itself and every other
+     inherits empty (PLAN.md §7.3.81). A document that forgot the declaration
+     would be read as strategy-off, silently; this compares it with the fixture
+     XML under `../moves.rs/characterization/fixtures/`, where one exists.
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -358,6 +366,49 @@ def check_source(doc_name: str, doc_dir: pathlib.Path, name: str, entry: dict) -
                  f"{sorted(actual)[:8]}). A right row count does not make a "
                  f"copied note right about whose rows they are")
 
+ROP_CLASS = ("gov.epa.otaq.moves.master.implementation.ghg.internalcontrolstrategies."
+             "rateofprogress.RateOfProgressStrategy")
+
+
+def xml_rate_of_progress(xml: pathlib.Path) -> bool:
+    """RateOfProgressStrategy.acceptTSV over the RunSpec's strategy entries."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(xml).getroot().find("internalcontrolstrategies")
+    for node in (root if root is not None else []):
+        if node.get("classname") != ROP_CLASS:
+            continue
+        for line in (node.text or "").strip("\r\n").splitlines()[:4]:
+            parts = line.split("\t")
+            if not line:
+                break
+            if parts[0].strip().lower() == "useparameters":
+                if len(parts) > 1 and parts[1].strip().lower() == "yes":
+                    return True
+                break
+    return False
+
+
+def check_rate_of_progress(rel: str, doc: pathlib.Path, d: dict) -> None:
+    xml = SNAPSHOTS.parent / "fixtures" / (doc.stem + ".xml")
+    if not rel.startswith("runspecs/") or rel.startswith("runspecs/nonroad/") or not xml.exists():
+        return
+    want = xml_rate_of_progress(xml)
+    entry = (d.get("data_sources") or {}).get("db_runspecinternalcontrolstrategy")
+    have = False
+    if entry is not None:
+        import pyarrow.parquet as pq
+        path = resolve((entry.get("source") or {}).get("url_template", ""), doc.parent)
+        if path is not None and path.exists():
+            t = pq.read_table(path).to_pydict()
+            have = any(c == ROP_CLASS and str(u).strip().lower() == "yes"
+                       for c, u in zip(t.get("className", []), t.get("useParameters", [])))
+    if want != have:
+        fail(rel, "db_runspecinternalcontrolstrategy",
+             f"{xml.name} turns the Rate-of-Progress strategy {'ON' if want else 'off'}, "
+             f"but the document {'does not declare it' if want else 'declares it on'}: "
+             f"the model would read the run as strategy-{'off' if want else 'on'}")
+
+
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
     # catalog used to be a file of its own with no model attached, because
@@ -405,6 +456,7 @@ def main() -> int:
         for name, entry in (d.get("data_sources") or {}).items():
             n += 1
             check_source(rel, doc.parent, name, entry)
+        check_rate_of_progress(rel, doc, d)
 
     for line in notes:
         print(f"  note: {line}")
