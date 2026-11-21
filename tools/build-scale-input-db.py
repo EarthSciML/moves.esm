@@ -37,7 +37,11 @@ TRUNCATEs and refills is the refill.
 
 `--copy T1,T2,...` additionally materialises `INSERT INTO T SELECT * FROM
 movesdb20241112.T [WHERE a=1 AND b=2 ...]` for the NAMED tables only, by
-filtering the default database's own Parquet with the same equalities. It is
+filtering the default database's own Parquet with the same predicates; and
+`INSERT INTO [db.]T (cols) SELECT cols FROM movesdb20241112.S WHERE ...`, the
+form MOVES 5's LEV and NLEV builder scripts take (`emissionratebyage` from
+`emissionratebyagelev`, with `in (...)` lists and MySQL's `mid()` on the packed
+sourceBinID; PLAN.md §7.3.82). It is
 how a domain document gets the INPUT side of a row merge whose input rows are
 default-row copies (`washtenaw-project`'s `ZoneRoadType`, filtered to its zone):
 the merge has to read both sides even when one is a subset of the other, or
@@ -154,31 +158,74 @@ def never_filled(sql):
     return [t for t in created_columns(sql) if t.lower() not in filled]
 
 
+def sql_number(value):
+    """MySQL's numeric reading of a value compared with a number: a string is
+    read as its leading number, '' as 0 (`mid(sourcebinid,8,2) in ('', 94, ...)`)."""
+    if isinstance(value, str):
+        m = re.match(r"\s*[-+]?\d+(\.\d*)?([eE][-+]?\d+)?", value)
+        return float(m.group(0)) if m else 0.0
+    return float(value)
+
+
+def row_filter(data, clause):
+    """The boolean mask of one WHERE conjunct over `data`: `col = literal`,
+    `col in (literal, ...)` or `mid(col, start, length) in (literal, ...)`, the
+    last as MySQL evaluates it -- MID of the column's decimal text (1-based), the
+    comparison numeric, because the list holds numbers."""
+    m = re.match(r"(?:mid\(\s*(\w+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)|(\w+))\s*(=|in)\s*(.*)$",
+                 clause.strip(), re.S | re.I)
+    if not m:
+        sys.exit("unsupported WHERE clause: %r" % clause)
+    col = m.group(1) or m.group(4)
+    field = next(f.name for f in data.schema if f.name.lower() == col.lower())
+    values = data.column(field).to_pylist()
+    if m.group(1):
+        start, length = int(m.group(2)) - 1, int(m.group(3))
+        values = [str(v)[start:start + length] for v in values]
+    if m.group(5) == "=":
+        wanted = {sql_number(literal(m.group(6)))}
+    else:
+        items = re.findall(r"'[^']*'|[^,()\s]+", m.group(6).strip()[1:-1])
+        wanted = {sql_number(literal(v)) for v in items}
+    return [sql_number(v) in wanted for v in values]
+
+
 def copied_rows(sql, movesdb, tables):
-    """{table: pyarrow.Table} for `INSERT INTO T SELECT * FROM movesdb20241112.T
-    [WHERE a=1 AND b=2]`, for the named tables: the default's rows, filtered."""
+    """{table: pyarrow.Table} for the named tables, copied from the default
+    database by `INSERT INTO T SELECT * FROM movesdb20241112.T [WHERE ...]` or by
+    `INSERT INTO [db.]T (cols) SELECT cols FROM movesdb20241112.S [WHERE ...]` --
+    the second is how MOVES 5's LEV/NLEV builder scripts write their database
+    (database/LEV_NLEVScripts/, `emissionratebyage` from `emissionratebyagelev`).
+    The WHERE is a conjunction of `col = v`, `col in (...)` and
+    `mid(col, a, b) in (...)` (`row_filter`); the copy is typed by the TARGET
+    table's default schema."""
     sql = re.sub(r"--[^\n]*", "", sql)
     wanted = {t.lower() for t in tables}
     out = {}
-    pattern = re.compile(r"INSERT\s+INTO\s+(\w+)\s+SELECT\s+\*\s+FROM\s+\w+\.(\w+)\s*(?:WHERE\s+(.*?))?;",
-                         re.S | re.I)
+    pattern = re.compile(r"INSERT\s+INTO\s+(?:\w+\.)?(\w+)\s*(?:\(([^)]*)\))?\s*SELECT\s+(\*|[\w\s,]+?)\s+"
+                         r"FROM\s+\w+\.(\w+)\s*(?:WHERE\s+(.*?))?;", re.S | re.I)
     for m in pattern.finditer(sql):
         table = m.group(1)
         if table.lower() not in wanted:
             continue
-        name, _ = default_schema(movesdb, m.group(2))
-        data = pq.read_table(os.path.join(movesdb, name + ".parquet"))
-        for clause in re.split(r"\s+AND\s+", m.group(3) or "", flags=re.I):
-            if not clause.strip():
-                continue
-            col, val = (x.strip() for x in clause.split("="))
-            field = next(f.name for f in data.schema if f.name.lower() == col.lower())
-            keep = [v == literal(val) for v in data.column(field).to_pylist()]
-            data = data.filter(pa.array(keep, type=pa.bool_()))
+        name, schema = default_schema(movesdb, table)
+        source, _ = default_schema(movesdb, m.group(4))
+        data = pq.read_table(os.path.join(movesdb, source + ".parquet"))
+        if m.group(3).strip() != "*":
+            into = [c.strip().lower() for c in m.group(2).split(",")]
+            picked = [c.strip().lower() for c in m.group(3).split(",")]
+            if into != picked:
+                sys.exit("%s: a column list that renames is not supported" % table)
+        for clause in re.split(r"\s+AND\s+", m.group(5) or "", flags=re.I):
+            if clause.strip():
+                data = data.filter(pa.array(row_filter(data, clause), type=pa.bool_()))
+        by_name = {f.name.lower(): f.name for f in data.schema}
+        data = pa.table({f.name: data.column(by_name[f.name.lower()]).cast(f.type) for f in schema},
+                        schema=schema)
         out[table] = (name, data)
     missing = wanted - {t.lower() for t in out}
     if missing:
-        sys.exit("no INSERT ... SELECT * copy of %s" % sorted(missing))
+        sys.exit("no INSERT ... SELECT copy of %s" % sorted(missing))
     return out
 
 
