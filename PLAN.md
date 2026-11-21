@@ -8698,7 +8698,7 @@ outside the run (applied by MOVES, read by nothing the run emits). A RATES twin 
 captured: Rates scale reads sampleVehiclePopulation through the same source-bin
 distribution and TAG paths, so it exercises no other reader.
 
-**Unchanged runs.** (Re-emission against the main tree's `.fixtures-run/` in progress; this paragraph is replaced with the result.)
+**Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d against the main tree's `.fixtures-run/` after its esm 0.14.0 suite: 199 files over 58 runs, every relation, shape and oracle table byte-identical, each run passing its oracle -- every RunSpec whose snapshot carries an avft (`scale-county`, every `scale-county-*`, every `project-*`, `scale-project`, every `rates-project*`, `userdb-hotelling-multiyear` and its `-day`, `-month`, `-year`) and the DEFAULT-domain controls `process-tirewear`, `expand-sourcetype` and `chain-so2-co2e-mechanism`. `run-link-omd-oracle.sh` reproduces `project-avft`'s link operating-mode distribution too (43,495 of 43,495 cells, scheduling predicate 0 disagreeing) once it reads the fixture XML from moves.rs branch `capture-avft`: its predicate takes a run's domain from `characterization/fixtures/<run>.xml`, which reaches the main checkout only with that branch.
 
 **Cost.** Evaluated one at a time under `/scratch.local/ctessum/eval.lock` on the final model: `scale-county-avft` 98 s user CPU (2 min 15 s wall) at 4.1 GB peak RSS, `project-avft` 43 s (51 s wall) at 3.0 GB.
 
