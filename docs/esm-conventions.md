@@ -10183,3 +10183,53 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    the nonroad fixtures without `db_nrretrofitfactors`; `esm test` and `simulate` refused them (and the
    execution database's decimal text needed `float_columns`). Run the fixture stage, not only the
    RunSpec stage, after adding a source.
+
+## 136. A capability the model does not compute is a counted refusal even when no capture can reach it: an input side declared by every domain, compared at the columns the model reads, and a RunSpec setting read through a declared table **[PLAN.md §7.3.85; F102-F105; all 115 onroad RunSpecs byte-identical (269 files) and every new counter 0; probes on `scale-county`, `im-cook` and `project-crankcase` count exactly what they plant; cost within noise]**
+
+1. **A table the model reads from the default database has an INPUT side in every domain document,
+   even where it is empty.** MOVES merges a domain or user input database ahead of the default
+   (InputDataManager), so a County Data Manager table is a row merge, and five tables are REPLACED
+   whole in some domain (`sourceTypeYear`, `sourceTypeAgeDistribution`, `HPMSVtypeYear` in SINGLE;
+   `fuelSupply`, `IMCoverage` in SINGLE and PROJECT; `fuelUsageFraction` once any input row exists).
+   A document can only mount what it declares, so each domain document declares
+   `db_input_<table>` -- the rows its database STATES; an `INSERT ... SELECT` copy of the default is
+   the default's own row at the same key and is not restated (`tools/build-scale-input-db.py
+   --empty` writes the zero-row side, never over a stated one). The DEFAULT-domain catalogues
+   declare the same names over `inputs/default-domain/`, zero rows.
+2. **The refusal is "states something the model does not use", never "has rows".** Every captured
+   database is a copy of the default, and the verified runs are right because of it. So a merge
+   table counts input rows minus input rows the default matches at EVERY column the model reads (one
+   `faq` with every compared column in one join clause; the default's keys are unique), and a
+   REPLACE table, where its input side is non-empty and the domain replaces it, also counts the
+   default keys inside the run's selection the input lacks (selected keys minus selected keys the
+   input states). Measure the stated copies against the default before choosing a tolerance: the
+   two `-single` databases' literal `sourceTypeYear`, `roadTypeDistribution`, `County`, `State`
+   and `Year` rows equal the default's bit for bit, so equality is the test.
+3. **A refusal keyed off the wrong table is a silent hole in both directions.** The I/M refusal
+   counted the DEFAULT database's IMCoverage in SINGLE and PROJECT domain, where MOVES reads only
+   the domain database's: a county database's own program passed un-inspected, and a county the
+   default covers was refused for a program MOVES never applies. Count the table the reference
+   reads in that domain.
+4. **A setting MOVES writes nowhere is a per-run declared table of `<setting>=<value>` strings,
+   decoded by `codes` against the one configuration the model computes.** The RunSpec's output
+   breakdown, units, geographic output detail, geographic selection types, activity-output flags,
+   generic county, `<donotexecute>` and `<doNotPerformFinalAggregation>` are one string column
+   (`db_runspecoutput`, `--runspec-output`); one decoded flag per KIND of row, and `1 - supported -
+   (rows counted on their own)` per row. The supported default is declared by the three documents
+   that declare every table; a domain whose editor fixes a setting declares its own (PROJECT, LINK
+   detail); a run whose settings differ declares its own; `tools/check-sources.py` resolves each
+   RunSpec's mount chain and compares the declaration with its XML.
+5. **An output the model does not emit beside one it does is reported, not refused.** Activity
+   output leaves MOVESOutput unchanged, so `run_activityOutputUnported` is a shape field the shape
+   check prints as a known-unported output and does not fail on.
+6. **Where the model cannot know a table exists, the guard is tooling.** A runspec mounts only what
+   it declares, so `tools/check-sources.py` reads the SQL that seeds each run's input databases and
+   fails a run whose database states a table no document of its mount chain reads, or an `inputs/`
+   database file no document declares. A copy of the same default table needs nothing; a table
+   filled from a DIFFERENT default table needs a declaration or a named identity
+   (`DERIVED_IDENTITIES`: AVFTTool's default projection).
+7. **A join between a national table and a usually-empty one ranges the national side FIRST.** The
+   engine drives from the earlier range and indexes the later one; with the empty input side first
+   it indexed fuelUsageFraction (1.4M rows) and zoneMonthHour (931k) on every compared column on
+   every run, +5 s of `scale-county`'s 45 s CPU. Walking the national table against an empty index
+   is within noise (F104).

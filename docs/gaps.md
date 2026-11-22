@@ -28,3 +28,12 @@ the default database at the run's keys (PLAN.md §7.3.45), and every NONROAD cap
 selects running exhaust with empty input databases. A table the model never reads
 gives the right answer on such a capture. A capture that checks a table must state it
 DIFFERENTLY from the default.
+
+**Onroad counting, 2026-11-21 (PLAN.md §7.3.85).** Every onroad item the audit marked
+*silent* is now counted or guarded: the County and Project Data Manager tables, the
+alternate VMT forms and a user Starts table (`run_domainTablesUnread`), I/M in SINGLE and
+PROJECT domain from the domain database's IMCoverage (`run_imUnported`, a bug fixed), the
+RunSpec's output breakdown, units, geographic output detail, generic county and
+NATION/STATE selection (`run_outputOptionsUnported`, `run_geoSelectionUnported`), any
+other input-database table (tools/check-sources.py check 9), and activity output, which
+is reported as a known-unported output rather than refused (`run_activityOutputUnported`).

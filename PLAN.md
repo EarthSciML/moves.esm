@@ -31,7 +31,11 @@ status; what a RunSpec can select that the model does not compute is counted by 
 the model does not, with evidence. The largest gaps were SILENT: most county and project input
 tables, the alternate VMT and starts inputs, the RunSpec's output options (breakdown, units,
 geographic detail), onroad NATION and STATE runs, and on NONROAD every process but running exhaust,
-CO2, NH3 and the user input tables. Turning each into a counted refusal comes first; porting follows.
+CO2, NH3 and the user input tables. Turning each into a counted refusal comes first; porting follows. **Onroad: counted 2026-11-21
+(§7.3.85, findings F102-F105)** -- the County and Project Data Manager tables, alternate VMT, user starts,
+I/M's domain IMCoverage (a refusal that read the wrong table, fixed), the output settings and NATION/STATE
+selection are counted refusals, any other input-database table is a check-sources failure, and activity
+output is a reported known-unported output.
 
 ---
 
@@ -9462,6 +9466,168 @@ tests and emit byte-identical relations. The twin's relation is byte-identical b
 port. The Python binding loads both new runspecs. tools/check-conventions.py, faq-filter-lint.py,
 check-sources.py (its new check 8: a nonroad RunSpec reads its execution database's retrofit row count)
 and check-reachability-counts.py pass.
+
+#### 7.3.85 Counting what was silent: the domain tables, the I/M refusal's table, the RunSpec's output settings and the input databases (F102-F105)
+
+2026-11-21. The gap audit (`docs/gaps.md`, `docs/gaps-onroad.md`) found that much of what MOVES 5
+does on the onroad side was SILENT in moves.esm: a run asking for it got a plausible wrong number and
+no refusal. This section makes every such item a COUNTED refusal (a count, asserted 0 for every
+verified run), or a tooling guard where the model cannot see the table, and fixes one refusal that
+read the wrong table. Nothing is ported here.
+
+**The central design problem.** Every captured county and project database is a COPY of the default
+database at the run's keys, and the verified runs are right because of it, so "the table has rows"
+cannot be the refusal. The refusal is "the table states something the model does not use": a row the
+default does not carry identically at the columns the model reads, a key the default lacks, or -- for
+a table MOVES REPLACES whole in that domain -- a selected default key the stated table lacks.
+
+**1. The I/M refusal read the default database's IMCoverage (F102, fixed).** `run_imUnported` counted
+`run_imProgramRows` -- the DEFAULT table's programs at the run's county, year and pollutant-processes --
+in SINGLE and PROJECT domain. But MOVES copies the default's IMCoverage only when `includeFuelSupply`
+(InputDataManager.java:1433-1435, `includeIMCoverage = includeFuelSupply` at :2816), i.e. in DEFAULT
+domain, and even there not when an input database already states a row (:2816-2823). So the refusal
+was wrong both ways: a county database's own program was blended by nobody and counted by nobody,
+and a county the default covers was refused for a program MOVES never applies. Every domain document
+now declares the domain database's IMCoverage (`db_input_imcoverage`; zero rows everywhere -- Washtenaw
+has no program, and the -single databases create no IMCoverage), and
+`run_imUnported = run_inputIMProgramRows + run_isDefaultDomain x (run_imProgramRowsUnchecked +
+[run_inputIMRowCount > 0] x run_imProgramRows)`. `rt_imAdjustFract` was already DEFAULT-only.
+Probes on `im-cook` (Cook, 2020, THC/CO/NOx at running and start): SINGLE domain over the Washtenaw
+county document, 44 default program rows at the selection, `run_imUnported` **0** (44 before the
+fix); the same with Cook's 52 programs as the county database's IMCoverage, **44**; DEFAULT domain
+with them as an input database, **88** (44 stated + the 44 default programs MOVES would no longer copy).
+
+**2-3. The County and Project Data Manager tables, the alternate VMT forms and user starts.** The
+model read sourceTypeYear, sourceTypeAgeDistribution, HPMSVtypeYear, monthVMTFraction,
+dayVMTFraction, hourVMTFraction, avgSpeedDistribution, roadTypeDistribution, fuelSupply,
+fuelFormulation, fuelUsageFraction, zoneMonthHour, startsPerDayPerVehicle, startsHourFraction,
+startsMonthAdjust, startsAgeAdjustment, startsOpModeDistribution, totalIdleFraction, County, State
+and Year from the default database alone. InputDataManager merges a domain or user input database
+first and the default after it with INSERT IGNORE, so a stated row wins at its key; and it skips the
+default's copy of sourceTypeYear, sourceTypeAgeDistribution and HPMSVtypeYear in SINGLE-county
+domain (:2833-2835), of HPMSVtypeYear wherever an alternate VMT table has rows (:2837-2846), of
+fuelSupply in SINGLE and PROJECT (:1433-1435) and of fuelUsageFraction once any input row exists
+(:2825-2831). Each of the 21 tables now has an input side, `db_input_<table>`, declared by every
+domain document (the 17 county, project and user databases' documents over their own directories; the
+DEFAULT catalogue, the fixture catalogue and the 7c spike over `inputs/default-domain/`, zero rows).
+The input side is what the database STATES: `tools/build-scale-input-db.py --empty` writes a
+zero-row typed file where its SQL holds only `INSERT ... SELECT` copies of the default, never over a
+stated file. Five more tables have no default side at all: the alternate VMT forms HPMSVtypeDay,
+SourceTypeYearVMT and SourceTypeDayVMT (TotalActivityGenerator.java:1170-1200, 1436-1460,
+1547-1600), a user Starts table (AdjustStarts.sql:22-35 uses its `isUserInput = 'Y'` rows in place
+of the starts it computes) and importStartsOpModeDistribution (InputDataManager.java:3777-3790).
+The model counts, in `run_domainTablesUnread` (folded into `run_domainUnported`):
+- `run_input<T>Differs`: input rows minus input rows the default matches at EVERY column the model
+  reads -- one `faq`, every compared column in one join clause (the default's keys are unique);
+- `run_input<T>Missing` for the five REPLACE tables, where the input side has a row and the domain
+  replaces it: the default keys inside the run's selection (years and source types; the county-year's
+  fuel region and fuel year; the counties and fuel years) minus those the input states;
+- `run_input<T>Rows` for the five tables without a default side (Starts: its 'Y' rows).
+
+Measured before choosing equality: the only stated rows in the corpus, the two -single databases'
+literal sourceTypeYear (13), roadTypeDistribution (5), County, State and Year (1 each), equal the
+default's bit for bit at every compared column.
+
+**Finding F103: the two -single databases' literal tables were mounted by nothing.** `setup-hotelling.sql`
+and `setup-starts.sql` state State, County, Zone, ZoneRoadType, roadTypeDistribution, Year and sourceTypeYear
+rows literally; `inputs/washtenaw-county-hotelling/` and `-starts/` held them as files and no document read
+five of them. They are copies, so nothing was wrong -- but nothing would have said so had one differed,
+which is what check 9 below now fails on.
+
+Probe on `scale-county` (SINGLE), one county document with sourceTypeYear missing source type 21 and
+one population doubled, one zoneMonthHour temperature +1, one fuelSupply row of the 84 at the run's
+region and fuel year, one fuelUsageFraction row of 7 at another share, County barometric pressure
++0.5, one SourceTypeYearVMT row and one user Starts row: **96** = 1 + 1 (sourceTypeYear differs,
+missing) + 1 + 83 + 1 + 6 + 1 + 1 + 1, every component as predicted. The same tables as a
+DEFAULT-domain input database: **12** -- the SINGLE-only and SINGLE/PROJECT REPLACEs drop out,
+fuelUsageFraction's stays.
+
+**4. Any other table in an input database: a tooling guard.** A RunSpec document mounts only what it
+declares, so the model cannot know a table its database states and no document declares.
+tools/check-sources.py's new check 9 reads the SQL `characterization/run-all-fixtures.sh` seeds each
+run's input databases from (`county_sql_for`) and fails a run whose database fills a table with
+literal rows, or from a DIFFERENT default table (the LEV builder's emissionRateByAge), that no
+document of its mount chain reads under `inputs/`; a copy of the same default table is the default's
+own rows. One named identity: AVFTTool's default `avft`, which AVFTControlStrategy rewrites
+sampleVehiclePopulation to unchanged (§7.3.78). And every non-empty file in an `inputs/` database
+directory the chain reads must be declared. Probed by dropping `db_input_sourcetypeyear` and
+`db_input_county` from `process-apu-single`'s chain: both SQL tables (13 and 1 literal rows) and
+both files are reported. Before item 2 it would have failed the -single databases (F103).
+
+**5-7. The RunSpec's output settings, NATION/STATE selection and activity output.** MOVES writes the
+output breakdown (OutputEmissionsBreakdownSelection.java:17-53), the output units
+(runspec/*MeasurementSystem.java), the geographic output detail (AggregationSQLGenerator.java:956-1191),
+the geographic selection types (PreAggNATION/PreAggSTATE, InputDataManager.java:2582-2640), the
+activity-output flags (MOVESInstantiator.java:1366-1377), a generic county (RunSpecXML.java:356-432),
+`<donotexecute>` and `<doNotPerformFinalAggregation>` (:225-231) nowhere in the execution database.
+`tools/build-scale-input-db.py --runspec-output` writes them from the XML as one string column of
+`<setting>=<value>` rows (`db_runspecoutput`, 28 rows; one row per selection TYPE). The supported
+default (`expand-roadtypes`'s, COUNTY detail) is declared by onroad/default-database.esm, the fixture
+catalogue and the 7c spike; every PROJECT domain document declares LINK detail; the four RunSpecs with
+`outputvmtdata` on declare their own. check-sources check 10 resolves each RunSpec's mount chain and
+compares the declaration with its XML row for row. The model decodes each row with `codes`
+(`rso_supported`, `rso_isDetail`, `rso_detailCounty`, `rso_detailLink`, `rso_geoSelection`,
+`rso_activityOn`) and counts `run_outputOptionsUnported` (every unsupported row, and a detail other
+than COUNTY outside PROJECT or LINK in it; Rates exempt) and `run_geoSelectionUnported`, both in
+`run_selectionUnported`, and `run_activityOutputUnported`, which is NOT a refusal: MOVESOutput is
+right when activity output is on (four verified runs ask for VMT and reproduce), so it is a shape
+field the shape check prints as a known-unported output and does not fail on.
+
+**Finding F105: MOVES forces LINK detail at Rates scale on load, and PROJECT's LINK is the editor's,
+not the loader's.** RunSpecXML.java:122-124 sets LINK whenever the scale is MESOSCALE_LOOKUP, so the
+21 Rates RunSpecs whose XML says COUNTY are LINK runs; OutputEmissionsBreakdown.java:820-826 fixes
+LINK for PROJECT in the GUI only, so a PROJECT RunSpec loaded from XML with COUNTY detail would
+aggregate its links. Read, not captured; the counter follows the loader.
+
+Probes: `scale-county` with a source-type breakdown, kilograms, STATE detail, a STATE selection,
+`outputsho`, a generic county and two `<donotexecute>` classes: `run_outputOptionsUnported` **5**,
+`run_geoSelectionUnported` **1** (selection **6**), `run_activityOutputUnported` **1**;
+`project-crankcase` at COUNTY detail **1**. check-sources fails a `scale-county-minor-running` chain
+without its declaration (`outputvmtdata`) and a PROJECT chain without the LINK one.
+
+**8. The rest of gaps-onroad.md's silent items** fall under the above: a generic county and the two
+MOVESOutput-changing legacy switches (`run_outputOptionsUnported`), user meteorology for the Rates
+temperature bins (`run_inputZoneMonthHourDiffers`), a non-base year in a user `year` table
+(`run_inputYearDiffers` compares `isBaseYear` and `fuelYearID`), and a user `generalFuelRatioExpression`
+or `sourceTypePolProcess` (check 9).
+
+**Finding F104: an equality join is priced by the side it indexes.** The first cut of the Differs
+join ranged the input side first; the engine drove from it (empty) and indexed the DEFAULT side on
+every compared column -- fuelUsageFraction's 1.4M rows, zoneMonthHour's 931k -- on every run:
+`scale-county` 45 s CPU to 52 s. With the default side first, it walks the national table against an
+empty index and the cost is within noise (47 s). Ranges order is a cost decision whenever one side of a
+join is national and the other is usually empty.
+
+**Cost.** Every verified run pays for these counters; their joins are on gated keys or against a
+usually-empty input side, and none ranges over a run relation, so the cost is a constant per run.
+Measured against the base commit's tree on a quiet node (user CPU, peak RSS): `scale-county` 43.0 s /
+2.37 GB before, 42.3 s / 2.35 GB after; `scale-county-evap-species` 194.2 s / 7.67 GB before, 196.8 s /
+7.68 GB after; `scale-county-idle-nonhaptog` 261.8 s / 11.77 GB before, 264.7 s / 11.78 GB after (+1%, within
+run-to-run noise). `expand-sourcetype` 93 s / 5.1 GB after. The whole sweep of 115 RunSpecs took 3.13 h of user
+CPU, heaviest RSS 11.7 GB (`scale-county-idle-nonhaptog`), measured while the main suite ran beside it, which
+inflates user time 15-20% on the heavy runs (the same two runs read 236 s and 303 s there).
+
+**Unchanged.** All 115 `runspecs/` documents re-emitted with tools/emit-oracle-table.py (one evaluation
+each, serialized) and `cmp`'d against the main tree's `.fixtures-run/` after its suite finished: 269 files
+(every relation and every Rates table) byte-identical; every shape scalar the main suite recorded the same;
+`run_domainUnported`, `run_selectionUnported`, `run_outputOptionsUnported`, `run_geoSelectionUnported`,
+`run_domainTablesUnread` and `run_imUnported` 0 on all 115; `run_activityOutputUnported` 1 on exactly the four
+RunSpecs that request VMT output, which tools/check-runspec-shape.py prints and passes (115 of 115 pass).
+`esm test` passes `fixtures/process-tirewear.esm` (37 assertions), `fixtures/mixed-onroad.esm` (152) and the 7c
+spike, the three documents that mount the model through the execution-database catalogues. The Python
+binding loads one RunSpec per distinct mount target (27). tools/check-conventions.py, faq-filter-lint.py and
+check-sources.py (166 catalogues, 3,201 sources, checks 9 and 10 included) pass;
+check-reachability-counts.py reports 14 of 181 figures of `docs/omd-generator-reachability.md` stale, on the
+base commit as on this one and in the main suite's own run (its one failure) -- a corpus change, not this lane's.
+
+**Still silent, and why.** Domain-database validation (MOVES refuses an incomplete County Data
+Manager database; the model would compute from it) is not counted: it is a refusal MOVES makes, and
+every capture runs with `skipdomaindatabasevalidation`. A REPLACE table whose domain database holds
+only `INSERT ... SELECT` copies with a filter narrower than the run's selection is read as the
+default's; the convention that a copy is not restated (and every verified run reproducing) is what
+covers it. Columns the model does not read (sourceTypeYear's salesGrowthFactor and migrationRate,
+HPMSVtypeYear's VMTGrowthFactor) are not compared: MOVES reads them only to grow a non-base year,
+which a user `year` table would make reachable and `run_inputYearDiffers` counts.
 
 ### 7.4 Upstream asks
 

@@ -42,6 +42,10 @@ asserts the four counts the chain keeps of what it could not reach:
     run_selectionUnported == 0
     run_tankGroupsDropped == 0
 
+and REPORTS, without failing, `run_activityOutputUnported` when the RunSpec
+turns an activity-output flag on: MOVESActivityOutput is not emitted, and
+MOVESOutput, which is what is checked, is unaffected (PLAN.md §7.3.85).
+
 The last four lines are a different KIND of check from the four above them.
 The first two declared numbers are extents: too small and the document emits
 fewer rows than it computes, which the row count catches. The other two are
