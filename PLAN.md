@@ -14,9 +14,18 @@ overturn the obvious design.
 **§2 and §3 cover the second half of the pipeline only** — execution database to
 `MOVESOutput`, which is where all 734 of the fixtures' `data_sources` read. The
 front half, RunSpec XML and the default database, is
-[Phase 7](#phase-7--runspec-to-output-in-esm-planned-2026-09-10), and it is not
-started. Module coverage is a real number that measures a different thing than
+[Phase 7](#phase-7--runspec-to-output-in-esm-planned-2026-09-10), and it is far
+along (status below). Module coverage is a real number that measures a different thing than
 the goal does.
+
+**Status 2026-11-21.** Phases 0-6 are done: the back half is 32 of 32 live modules
+(§7.3.53), and Phase 6's control strategies are ported, or refused where MOVES 5 cannot run
+them (Rate-of-Progress, §7.3.81). Phase 7, the front half, is far along: 115 onroad RunSpecs
+in `runspecs/` and 14 NONROAD ones in `runspecs/nonroad/` compute `MOVESOutput` from the
+default database (plus the county, project or user input database a run names), and
+`run-tests.sh` checks each one cell by cell against a MOVES capture. §7.5 has each step's
+status; what a RunSpec can select that the model does not compute is counted by the model's
+`run_*Unported` variables rather than left silent.
 
 ---
 
@@ -41,7 +50,7 @@ algebraic — as every MOVES quantity is — fails with
 trivial state, `D(clock) ~ 0`, makes the run succeed and evaluates every
 observed correctly.
 
-The `esm test` subcommand now being added evaluates observed fields **without**
+The `esm test` subcommand now being added *[since landed, §1.5]* evaluates observed fields **without**
 an ODE simulation, so component-level inline tests need no such crutch.
 Convention: **components carry no `clock`.** Only a runnable assembly driven
 through `simulate` adds one, and that need disappears once array-observed
@@ -228,7 +237,7 @@ is never one, and gets compensated for in the track.
 | No `esm test` subcommand | **Closed** (EarthSciAST `fb0544b8a`). Takes files *or directories searched recursively*, and prints a per-file table naming the model and the failing assertion. `--reltol`/`--abstol` are the *solver* tolerances — how accurately a test is integrated — not the §6.6.4 tolerance its assertions are judged against, which each test declares for itself. |
 | `simulate` reports only *scalar* observeds | **Closed** (EarthSciAST `a784c5444`). Confirmed real first: an array observed was absent from `simulate --output` entirely, while a scalar one in the same model appeared. Now `SolveOptions::output_observed` names the subset to emit, `simulate --observed <NAME>` selects it, and `--format grid` renders `derive_output_plan` — which the CLI had never called. Array observeds flatten to one row per cell under the same cell-key scheme an array *state* gets, so both land on one grid. |
 | Data sources off by default | `esio` is an opt-in Cargo feature — `esm simulate` silently loads no data unless built with it. |
-| **The CLI wires no provider at all** | **OPEN, and a blocker for the Phase 2 exit criterion.** Worse than the row above, and independent of it: `PrepareProvider` is supplied by the *caller* through `PrepareOptions`, and `src/bin/esm.rs` supplies none — `esio_provider` has no in-crate caller outside the library's own tests. So no CLI subcommand can load a `data_sources` entry, with or without the feature. |
+| **The CLI wires no provider at all** | ~~OPEN, and a blocker for the Phase 2 exit criterion.~~ **Closed** *[since: the CLI wires a data provider, README "Status"; every fixture and RunSpec in `run-tests.sh` reads its `data_sources` through it]*. Worse than the row above, and independent of it: `PrepareProvider` is supplied by the *caller* through `PrepareOptions`, and `src/bin/esm.rs` supplies none — `esio_provider` has no in-crate caller outside the library's own tests. So no CLI subcommand can load a `data_sources` entry, with or without the feature. |
 | **`earthsciio` resolves to the registry, not the sibling checkout** | **Closed here** by `build-esm.sh`. `Cargo.toml` pins `earthsciio = "0.1.2"` from crates.io; the local EarthSciIO tree is *also* 0.1.2, so cargo has no reason to prefer it and silently keeps the registry copy — which has no `parquet.rs`. Every MOVES snapshot table is parquet. |
 
 Also: the checked-in `target/release/esm` in EarthSciAST is stale (Aug 11,
@@ -517,7 +526,7 @@ to do next; the generators are what is left.
 
 ## 3. Phases
 
-### Phase 0 — Harness and the equi-join gate
+### Phase 0 — Harness and the equi-join gate — **done**
 
 Phase 0 is longer than a harness phase usually is, because the gate (§1.3) is
 in it. That is deliberate: it is what lets every later phase be written in
@@ -612,7 +621,7 @@ later phase inherits its decisions.
   or a join that silently falls back to the filter path, is caught the day it
   appears.
 
-### Phase 2 — First vertical slice: `nr-logging-county` (144 rows)
+### Phase 2 — First vertical slice: `nr-logging-county` (144 rows) — **done**
 
 NONROAD first: self-contained (no 70-calculator chain), the smallest fixture,
 and `moves.rs` documents its arithmetic as four named Fortran subroutines
@@ -651,7 +660,7 @@ factors, so both must be modelled explicitly.
 tolerance, driven by `./run-tests.sh`. This phase proves the whole approach;
 treat a slip here as a signal to revisit Phase 1, not to push on.
 
-### Phase 3 — First onroad slice: `mixed-onroad` (250 rows)
+### Phase 3 — First onroad slice: `mixed-onroad` (250 rows) — **done**
 
 The rates-first base-rate path, which is what the pinned MOVES runtime actually
 registers (`CriteriaRunningCalculator` is superseded and registers nothing):
@@ -728,7 +737,7 @@ slice would therefore be the *most* expensive kind available: unvalidatable.
 See `docs/evap-leaks.md` §0.3 for the measurement, and Phase 4 below for the
 slice that was taken instead.
 
-### Phase 4 — Broaden by process
+### Phase 4 — Broaden by process — **done**
 
 One new leaf component per process, each reusing the spine: evap (permeation /
 leaks / FVV, 128 rows each), refueling (336), brake and tire wear (750 each),
@@ -838,13 +847,17 @@ joins at the same scale); and a derived relation's axis is a *metaparameter
 expression over discovered extents*, so only the output axis's 64 surviving
 cohorts is declared — checked in-document against a count the chain computes.
 
-### Phase 5 — Scale out
+### Phase 5 — Scale out — **done**
 
 Remaining NONROAD sectors (mostly the Phase 2 components against different
 sector data) and the `expand-*` dimension fixtures (multi-county, multi-month,
 multi-year, road types, fuel types). This is where the §1.3 gate gets
 stress-tested — the first place where a join's match count, not its index-set
 product, becomes the number that matters.
+
+**Status: done.** The module count reached 32 of 32 (§7.3.53); the remaining NONROAD
+sectors and the `expand-*` dimension runs reproduce as Phase 7 RunSpecs instead of
+fixtures (§7.5 steps 7d and 7e).
 
 **Two of Phase 5's rungs have no row in §2's ladder, and that is not an
 oversight.** `MeteorologyGenerator` (rung 9) and `FuelEffectsGenerator` (rung
@@ -856,11 +869,12 @@ cells, over the whole corpus rather than over one snapshot, and each is verified
 by an oracle handed the snapshots *directory*. §35.2 and §38 are the rules that
 came out of the pair.
 
-### Phase 6 — Control strategies
+### Phase 6 — Control strategies — **done 2026-11-21**
 
 AVFT, Rate-of-Progress, OnRoad/NonRoad retrofit, LEV
 (`moves.rs/docs/control-strategies.md`, whose Rate-of-Progress section is not what MOVES does: §7.3.81). Deferred deliberately: none of the 39
-fixtures exercises them, so this is scope beyond reproducing the examples.
+fixtures exercises them, so this is scope beyond reproducing the examples. *(Deferred until
+2026-11-20; every strategy is now ported or refused, each dated below.)*
 
 **Status 2026-11-20: AVFT is ported** (§7.3.78, conventions §129). MOVES 5 runs
 AVFTControlStrategy whenever a county or project database states `avft`, and before
@@ -871,7 +885,8 @@ applyNewFraction's branches) behind the source-bin distribution, TankVaporVentin
 TAG's hotelling split, the EV sales share left on the DEFAULT fleet as MOVES leaves it
 (F87), and ProjectTAG's direct read of avft (F88). Nothing of it is refused; the float
 cast, NATION geography and an empty project avft are recorded there as unreached.
-Rate-of-Progress and LEV are not ported.
+Rate-of-Progress and LEV are not ported. *[Since: Rate-of-Progress refused, §7.3.81; LEV ported,
+§7.3.82.]*
 
 **On-Road Retrofit: ported 2026-11-20 (§7.3.79).** A non-empty `onRoadRetrofit` is read
 (`rt_retrofitFactor` on the finished rows), checked by `scale-county-retrofit` and
@@ -949,6 +964,9 @@ per CLAUDE.md.
 
 ## 5. Risks
 
+*The table is the risk register as written at the start. Since then the equi-join gate
+(§1.3), the Parquet reader (§1.4), array output and `esm test` (§1.5) have all landed.*
+
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **The equi-join gate (§1.3) is now the critical path.** Nothing runs at fixture scale until it lands | High | Both halves exist (`overlap`'s enumeration-driving gate, `relational.rs`'s hash-bucketed kernel), so this is connection work, not invention. Phase 1 and the Phase 2 arithmetic proceed against small `const`-array tests meanwhile. If it stalls, a local EarthSciAST branch unblocks; do **not** fall back to dense reshaping — that is the legibility this plan is buying |
@@ -962,6 +980,9 @@ per CLAUDE.md.
 ---
 
 ## 6. Immediate next steps
+
+*This section is the record as of Phase 5's rungs, kept as it was written; the current status
+is at the top of this file, and §7.5 has Phase 7's.*
 
 Phases 0, 1, 2 and 3 are done and merged, and Phase 4 has two of its slices
 wired, and Phase 5's rungs are landing. **All fifteen** fixtures match the
@@ -1096,14 +1117,17 @@ blocks what.
    structural reason — `fractionOfOperating` is identically 1 at an on-network
    link, and all 39 snapshots select road type 4 — so this needs a RunSpec on
    road type 1 generated in `moves.rs`, not another slice here. See
-   `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23.
+   `docs/evap-fvv.md` §8.3 and `docs/esm-conventions.md` §23. *[Since done: moves.rs
+   captured road-type-1 runs (§7.3.41, §7.3.42), and the soak chain is checked on road
+   type 1 at Rates scale (`rates-venting`, §7.3.49) and on an off-network PROJECT link
+   (`project-offnetwork`, §7.3.56).]*
 
 Phase 6 (control strategies) stayed deferred until 2026-11-20, when AVFT
 (§7.3.78) and On-Road Retrofit (§7.3.79) were ported over new captures and
 Rate-of-Progress, which MOVES 5.0.1 itself fails to run, was made a counted
 refusal (§7.3.81); LEV and NLEV, which are user input databases rather than strategies, followed
-on 2026-11-21 (§7.3.82), with I/M found unported and made a counted refusal; see §3's Phase 6 for
-its status.
+on 2026-11-21 (§7.3.82), with I/M found unported and made a counted refusal *(then ported the same
+day, §7.3.83, as was NONROAD retrofit, §7.3.84)*; see §3's Phase 6 for its status.
 
 ### 6.1 What the fidelity gate now consists of
 
@@ -1270,7 +1294,9 @@ one: seven 208-row blocks and **no** 248-row parent, so nothing in it is
 unchained.
 
 **Five live calculators no snapshot in the corpus exercises**, measured by
-`tools/calculator-coverage.py --ladder` at rung 6:
+`tools/calculator-coverage.py --ladder` at rung 6 *[since all five are covered:
+`chain-so2-co2e-mechanism` reached the three onroad ones (§2, 19 of 19 calculators) and
+`nr-airtoxics-lawn-garden-county` the NONROAD pair (§7.3.39)]*:
 
 | calculator | registrations | what it owns |
 | --- | --- | --- |
@@ -1411,7 +1437,7 @@ project-domain `BaseRate` chain, and `moves.rs`'s own port of that chain is
 currently **50.69× high** against this snapshot
 (`../moves.rs/docs/known-divergences.md` §6.1) — so the reference for such a
 fixture is itself unsettled. `ProjectTAG` is the other unported live module,
-and the same snapshot is its evidence.
+and the same snapshot is its evidence. *[Since counted, both: §7.3.53, 32 of 32.]*
 
 **The denominator, honestly.** 65 modules, **32 live** (19 calculators, 13
 generators), **30 of 32 ported**. It was 35 live and 30 of 35. The three
@@ -1426,6 +1452,11 @@ figure is derived rather than recorded.
 ---
 
 ## Phase 7 — runspec to output, in `.esm` (planned 2026-09-10)
+
+*Status 2026-11-21: far along; §7.5 has each step's status. The next three paragraphs
+describe the tree when this phase was planned. Since then the 129 RunSpecs in `runspecs/`
+and `runspecs/nonroad/` read the default database, through `onroad/default-database.esm` and
+`moves-nonroad.esm`.*
 
 Everything above stops at the same place, and the goal does not. **Every one of
 the 734 `data_sources` entries across `fixtures/*.esm` reads a canonical MOVES
@@ -1480,7 +1511,7 @@ model for a second RunSpec. It is now:
 | `moves-onroad.esm` | the domain CATALOGUE — the default database's 39 tables, mounting the model. Still data-open: it declares no runspec. |
 | `runspecs/<run>.esm` | one thin document per RunSpec, mounting the catalogue. These validate alone, which is the point. |
 
-**Since step 7f the catalogue is two documents** (§7.3.40, conventions §92): `onroad/default-database.esm` holds the default database's tables and mounts the model, and the run's DOMAIN document mounts it and declares the tables MOVES merges differently by domain, with the RunSpec's `<modeldomain>`. `moves-onroad.esm` is the DEFAULT domain's and is what every RunSpec but one still mounts; a scale-input database's is in `inputs/`.
+**Since step 7f the catalogue is two documents** (§7.3.40, conventions §92): `onroad/default-database.esm` holds the default database's tables and mounts the model, and the run's DOMAIN document mounts it and declares the tables MOVES merges differently by domain, with the RunSpec's `<modeldomain>`. `moves-onroad.esm` is the DEFAULT domain's and is what every RunSpec but one still mounts *(on 2026-11-21, 47 of the 115 onroad RunSpecs; the rest mount a domain document in `inputs/`)*; a scale-input database's is in `inputs/`.
 
 **Since 2026-10-30 `fixtures/` has the same shape** (conventions §106): each of
 the fourteen fixtures is its snapshot's execution database under the `db_*`
@@ -4247,7 +4278,10 @@ first and third arms of step 100 (a user `driveScheduleSecondLink` or
 `opModeDistribution`), multi-link projects, and a grade other than 0 (written, not
 exercised). `offNetworkLink` is written and read by nothing, because only processes
 on the off-network road type read it. The FLOAT storage of the distribution is not
-modelled: it moves a fraction by at most 6e-08 of itself.
+modelled: it moves a fraction by at most 6e-08 of itself. *[Since ported: brake wear, tire wear
+and start exhaust on several links §7.3.55, the evaporative processes §7.3.56, a user
+`opModeDistribution` §7.3.58, multi-link projects and link grades §7.3.60, and a user
+`driveScheduleSecondLink` §7.3.62.]*
 
 **One harness defect turned up on the way.** The `no-link-join` probe has been
 vacuous since 7c′: it deleted the county range and `rsc_countyID`, which the
@@ -4540,7 +4574,7 @@ is the distinction the oracle alone cannot make (conventions §96). The document
 the 11 rows and names no month. The fixture presumably meant all twelve; if moves.rs
 rewrites it as keys 0 to 11 the document follows without an edit.
 
-**`expand-roadtypes` is pending, priced** (`runspecs/pending/expand-roadtypes.esm`,
+**`expand-roadtypes` is pending, priced** *[reproduces since §7.3.46]* (`runspecs/pending/expand-roadtypes.esm`,
 WHAT IT WAITS ON). With five road types selected `run_roadTypeID` sums the on-network
 four to 14, joins no `Link` row, and the chain emits 104 start rows at county 0 and 0 g;
 `run_selectionUnported` is 4. Two pieces:
@@ -5681,7 +5715,7 @@ them since. They went uncounted for two bookkeeping reasons:
 
   Only ProjectTAG's SHO path is ported. Its SHP, Starts, hotelling and
   SourceHours outputs are refused through `run_domainUnported`, and the spec
-  says so at the top.
+  says so at the top. *[Since ported, all of them: §7.3.55, §7.3.56; `docs/project-tag.md`.]*
 
 The result is **32 of 32: 19 calculators and 13 generators.**
 
@@ -8065,7 +8099,9 @@ earlier run has a chained APU species -- and by measurement (below).
 **Not ported, and how it is held:** N2O, NonHAPTOG, PM, metals, dioxins, PAH
 particles and mechanism species at these processes are not captured; at Year
 `run_yearUnportedSelected` counts them, at other aggregations they are uncounted
-as before (no capture has shown them wrong).
+as before (no capture has shown them wrong). *[Since: NonHAPTOG and the mechanism at these
+processes §7.3.73, which also finds N2O has no pair here; the PM species, PAH particles,
+metals and dioxins §7.3.74.]*
 
 **Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d, every relation, shape and table byte-identical: against the main tree's `.fixtures-run/` -- `process-apu`, `-apu-single`, `process-extended-idle`, `-extended-idle-single`, `process-crankcase-running`, `-start`, `-extidle`, `-start-single`, `-extidle-single`, `chain-tog-speciation`, `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `-control`, `process-airtoxics`, `process-nox-speciation`, `process-refueling`, `process-pm-exhaust`, `project-crankcase`, `rates-project-chained`, `rates-nonhaptog`, `rates-hotelling` and `rates-mechanism` (every Rates table), `scale-county` (relation AND shape), `expand-month` and `scale-county-timeagg-year` -- and, where main's `.fixtures-run/` has no file yet, against the base commit ecd71e8 emitted from a `git archive` of it in the lane's scratch: `scale-county-timeagg-year-toxics`, `-year-pm` and `scale-county-timeagg-processes-year`. `tools/check-sources.py` passes (129 catalogues, 2172 sources), all 20 `./run-*-oracle.sh` pass, both runspecs validate with `./esm` and load with the Python binding.
 
@@ -8178,7 +8214,8 @@ processes (11, 12, 13, 18, 19), where `rocspeciation` gives a TOG profile too an
 same rule writes NonHAPTOG from that process's NMOG: uncaptured, counted at Year
 (`run_yearUnportedSelected`), uncounted elsewhere -- the model computes it by the same
 equations, not shown wrong. The PM species, metals, dioxins and PAH particles at the
-five processes are the `idle-minor` lane's.
+five processes are the `idle-minor` lane's. *[Since: the PM species, metals, dioxins and PAH
+particles §7.3.74; the mechanism at 11, 12, 13, 18 and 19 §7.3.75.]*
 
 **Unchanged runs.** Re-emitted on the final model with `tools/emit-oracle-table.py` (the suite's shape fields) and `cmp`'d against the main tree's `.fixtures-run/`, every relation, shape and table byte-identical: `chain-nonhaptog`, `chain-so2-co2e-mechanism`, `-control`, `rates-nonhaptog` and `rates-mechanism` (every Rates table) -- the five runs that select NonHAPTOG or the mechanism -- and `process-extended-idle`, `process-apu`, `process-crankcase-extidle`, `process-crankcase-start`, `expand-month`, `scale-county`, `scale-county-timeagg-day`, `scale-county-idle-species`, `scale-county-timeagg-year-toxics-idle`, `scale-county-start-species`, `scale-county-timeagg-year-start-species` and `scale-county-timeagg-year-toxics` (which selects 8801 without a mechanism) -- seventeen runs. `tools/check-sources.py` passes, both new runspecs validate with `./esm` and load with the Python binding (`earthsci_ast.load_path`).
 
@@ -9139,7 +9176,7 @@ was not captured: it goes through the identical merge with every key a default k
 BuildLEVNLEV.java opens `database/LEV_NLEVScripts/MOVES5_MyLEVs_Template.sql`; the file is
 `MOVES5_MyLEVS_Template.sql`. The captures ran the script directly.
 
-**Finding F95: inspection and maintenance is not ported, and was silent.** The model reads
+**Finding F95: inspection and maintenance is not ported, and was silent.** *[Since ported: §7.3.83.]* The model reads
 `meanBaseRate` and never `meanBaseRateIM`; MOVES blends them by IMAdjustFract
 (calc/baseratecalculator/baseratecalculator.go:184, 580-617). Every on-road capture in the corpus is
 in Washtenaw, which has no I/M program, or selects no pollutant-process a program covers
