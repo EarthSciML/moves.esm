@@ -68,6 +68,15 @@ forgetting one column is both easy and silent.
      needs nothing. And every non-empty file in an `inputs/` directory the chain
      reads must itself be declared by the chain.
 
+ 10. a `runspecs/` document's output settings are its RunSpec's. MOVES writes
+     `<outputemissionsbreakdownselection>`, `<outputfactors>`,
+     `<geographicoutputdetail>`, `<geographicselections>`, the activity-output
+     flags and `<genericcounty>` nowhere in the execution database, so the model
+     reads them from `db_runspecoutput` (written by tools/build-scale-input-db.py
+     --runspec-output), and counts what it does not compute (PLAN.md §7.3.85).
+     This compares the declaration the document's mount chain resolves to with
+     the fixture XML, row for row.
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -467,6 +476,14 @@ def mount_chain(doc: pathlib.Path) -> list:
     return out
 
 
+def effective_source(chain: list, name: str):
+    for p, d in chain:
+        entry = (d.get("data_sources") or {}).get(name)
+        if entry is not None:
+            return resolve((entry.get("source") or {}).get("url_template", ""), p.parent)
+    return None
+
+
 def _build_tool():
     import importlib.util
     spec = importlib.util.spec_from_file_location("build_scale_input_db", HERE / "tools" / "build-scale-input-db.py")
@@ -542,6 +559,24 @@ def check_input_databases(rel: str, doc: pathlib.Path, d: dict) -> None:
                      f"of the run's mount chain reads it")
 
 
+def check_runspec_output(rel: str, doc: pathlib.Path, d: dict) -> None:
+    xml = SNAPSHOTS.parent / "fixtures" / (doc.stem + ".xml")
+    if not rel.startswith("runspecs/") or rel.startswith("runspecs/nonroad/") or not xml.exists():
+        return
+    want = _build_tool().runspec_output_options(xml)
+    path = effective_source(mount_chain(doc), "db_runspecoutput")
+    if path is None or not path.exists():
+        fail(rel, "db_runspecoutput", "no document of the run's mount chain declares the RunSpec's output settings")
+        return
+    import pyarrow.parquet as pq
+    have = pq.read_table(path).column("option").to_pylist()
+    if have != want:
+        diff = sorted(set(want) ^ set(have))
+        fail(rel, "db_runspecoutput",
+             f"{path.relative_to(HERE)} is not {xml.name}'s output settings ({', '.join(diff[:4]) or 'order'}): "
+             f"the model would count the wrong ones")
+
+
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
     # catalog used to be a file of its own with no model attached, because
@@ -592,6 +627,7 @@ def main() -> int:
         check_rate_of_progress(rel, doc, d)
         check_nonroad_retrofit(rel, doc, d)
         check_input_databases(rel, doc, d)
+        check_runspec_output(rel, doc, d)
 
     for line in notes:
         print(f"  note: {line}")

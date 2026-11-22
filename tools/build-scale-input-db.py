@@ -65,7 +65,7 @@ row per setting, a single string column `option` spelled `<setting>=<value>` --
 each `<outputemissionsbreakdownselection>` flag (`breakdown.<tag>=<selected>`), the
 three `<outputfactors>` (`timefactors=<selected>:<units>`, `distancefactors=...`,
 `massfactors=<selected>:<units>:<energyunits>`), `geographicoutputdetail`, one
-`geographicselection=<type>` per selection, the seven activity-output flags
+`geographicselection=<type>` per selection type, the seven activity-output flags
 (`outputvmtdata`, `outputsho`, `outputsh`, `outputshp`, `outputshidling`,
 `outputstarts`, `outputpopulation`), whether a `<genericcounty>` is given, how many
 calculators `<donotexecute>` names and `<doNotPerformFinalAggregation>`.
@@ -306,8 +306,8 @@ def runspec_output_options(xml_path):
     node = root.find("geographicoutputdetail")
     out.append("geographicoutputdetail=%s" % (node.get("description") if node is not None else ""))
     node = root.find("geographicselections")
-    for g in (node if node is not None else []):
-        out.append("geographicselection=%s" % g.get("type"))
+    for kind in dict.fromkeys(g.get("type") for g in (node if node is not None else [])):
+        out.append("geographicselection=%s" % kind)  # one row per selection TYPE
     for tag in ACTIVITY_FLAGS:
         node = root.find(tag)
         out.append("%s=%s" % (tag, (node.get("value") if node is not None else "false").lower()))
