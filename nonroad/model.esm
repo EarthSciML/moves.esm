@@ -218,6 +218,11 @@
       "default": 0,
       "description": "Rows in nrretrofitfactors, the NONROAD retrofit programs. Runtime-discovered. 0 in the default database and in every capture before PLAN.md §7.3.84; a user or county input database states the rows, and mergeNonRoad copies them into the execution database unfiltered."
     },
+    "n_pollutantprocessassoc": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in pollutantprocessassoc, MOVES's pollutant-process registry. Runtime-discovered; see n_nrscc."
+    },
     "n_equipmentPoint": {
       "type": "integer",
       "default": 6,
@@ -485,6 +490,10 @@
     "nrretrofitfactors_rows": {
       "kind": "interval",
       "size": "n_nrretrofitfactors"
+    },
+    "pollutantprocessassoc_rows": {
+      "kind": "interval",
+      "size": "n_pollutantprocessassoc"
     },
     "retrofit_group_rows": {
       "kind": "interval",
@@ -2633,6 +2642,62 @@
             "runspecpollutantprocess_rows"
           ],
           "description": "How many emitted pollutant-processes there are at or before this one."
+        },
+        "ppa_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pollutantprocessassoc_rows"
+          ],
+          "description": "pollutantprocessassoc.polProcessID: every pollutant-process MOVES knows.",
+          "update": {
+            "kind": "data",
+            "source": "db_pollutantprocessassoc",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "ppa_isAffectedByNonroad": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "pollutantprocessassoc_rows"
+          ],
+          "description": "pollutantprocessassoc.isAffectedByNonroad: 1 for the 241 pollutant-processes a NONROAD calculator registers -- NonroadEmissionCalculator's 18 (`nonroadPolProcessIDs`, NonroadEmissionCalculator.java:61), NRHCSpeciation's and NRAirToxics' (CalculatorInfo.txt) -- which are the ones the RunSpec editor offers an off-road run.",
+          "update": {
+            "kind": "data",
+            "source": "db_pollutantprocessassoc",
+            "from": {
+              "file_variable": "isAffectedByNonroad"
+            }
+          }
+        },
+        "rpp_isNonroadPolProcess": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 for a selection MOVES registers for NONROAD (`ppa_isAffectedByNonroad`)."
+        },
+        "rpp_thcPolProcessID": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "Total gaseous hydrocarbons at the selection's process: the root every NONROAD hydrocarbon species and toxic at that process is a multiple of (NRHCSpeciation, then NRAirToxics, chained to NonroadEmissionCalculator)."
+        },
+        "rpp_hasNonroadRoot": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "runspecpollutantprocess_rows"
+          ],
+          "description": "1 when MOVES registers THC at the selection's process for NONROAD, so NONROAD writes the root the selection is computed from. 0 at processes 22, 23 and 24 (rec-marine fill-neck, supply and vent hose permeation): NRAirToxics registers seven toxics there, but NonroadOutputDataLoader writes no row at them (`.BMV` folds rec-marine hoses into hose permeation 21, NonroadOutputDataLoader.java:763), so MOVES emits nothing -- measured: `nr-pleasure-craft-state` selects benzene at 2022-2024 and its MOVESOutput has no row."
         },
         "sut_hpAvg": {
           "type": "parameter",
@@ -6117,6 +6182,14 @@
             "run_scope_rows"
           ],
           "description": "nrretrofitfactors records the model does not apply as MOVES does, asserted 0 by tools/check-nonroad-shape.py. NONROAD retrofit is PORTED (PLAN.md §7.3.84, `rtf_reduction`) for what `nr-retrofit-county` checks: a county run, fraction records -- SCC, 4- and 7-digit global SCCs, one technology or ALL, hp ranges, model-year ranges, retrofit years before, spanning and after the run year, overlapping IDs, overlapping records of one ID, both caps and the printf rounding. Still counted: every record of a state or nation run (prcsta.f, prcnat.f and prcus.f apply the same filters to a population no capture checks); a kept record whose printed fraction is above 1, which NONROAD reads as a NUMBER of units divided by the technology's population and fails on when it exceeds it (clcrtrft.f); and `run_retrofitTableOff`. An SCC of 'ALL' is refused at ingest: `float_columns` cannot decode it."
+        },
+        "run_polProcessUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "Selected pollutant-processes MOVES writes for NONROAD and this model does not compute, asserted 0 by tools/check-nonroad-shape.py (PLAN.md §7.3.86). A selection counts when MOVES registers it for NONROAD (`rpp_isNonroadPolProcess`) at a process whose THC NONROAD writes (`rpp_hasNonroadRoot`) and the model emits no row for it (`rpp_isEmitted` 0). That is: crankcase (15: NonroadOutputDataLoader.java:442-447, `.BMX` column 13, `clcems.f:239-245`) and the seven evaporative and refueling processes (diurnal 30, hot soak 31, running loss 32, tank permeation 20, hose permeation 21, displacement 18, spillage 19: NonroadOutputDataLoader.java:720-768 from the `.BMV` file, `clcevems.f`), with every NRHCSpeciation species and NRAirToxics toxic there; and at running exhaust Atmospheric CO2 (90, NonroadOutputDataLoader.java:424-429, `clcems.f`'s carbon balance) and ammonia (30, :485-503, fuel gallons x 0.116 or 0.0833 g). A toxic selected without the species MOVES computes it from (VOC, PM2.5, fuel) counts too: the RunSpec editor requires the parent, and the model emits nothing for it. Before this counter each of these returned no row and no signal."
         }
       },
       "equations": [
@@ -12264,6 +12337,122 @@
                 }
               }
             }
+          }
+        },
+        {
+          "lhs": "rpp_thcPolProcessID",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "pol_process_id",
+              "bindings": {
+                "pollutant_id": {
+                  "op": "enum",
+                  "args": [
+                    "pollutant",
+                    "TotalGaseousHydrocarbons"
+                  ]
+                },
+                "process_id": {
+                  "op": "apply_expression_template",
+                  "args": [],
+                  "name": "process_id_of",
+                  "bindings": {
+                    "pol_process_id": {
+                      "op": "index",
+                      "args": [
+                        "rpp_polProcessID",
+                        "q"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "lhs": "rpp_isNonroadPolProcess",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "a": {
+                "from": "pollutantprocessassoc_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppa_isAffectedByNonroad",
+                "a"
+              ]
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_polProcessID",
+                    "ppa_polProcessID"
+                  ]
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "lhs": "rpp_hasNonroadRoot",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "q"
+            ],
+            "ranges": {
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              },
+              "a": {
+                "from": "pollutantprocessassoc_rows"
+              }
+            },
+            "expr": {
+              "op": "index",
+              "args": [
+                "ppa_isAffectedByNonroad",
+                "a"
+              ]
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "rpp_thcPolProcessID",
+                    "ppa_polProcessID"
+                  ]
+                ]
+              }
+            ]
           }
         },
         {
@@ -23619,6 +23808,57 @@
                 }
               }
             ]
+          }
+        },
+        {
+          "lhs": "run_polProcessUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "q": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "expr": {
+              "op": "*",
+              "args": [
+                {
+                  "op": "-",
+                  "args": [
+                    1,
+                    {
+                      "op": "index",
+                      "args": [
+                        "rpp_isEmitted",
+                        "q"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rpp_isNonroadPolProcess",
+                    "q"
+                  ]
+                },
+                {
+                  "op": "index",
+                  "args": [
+                    "rpp_hasNonroadRoot",
+                    "q"
+                  ]
+                }
+              ]
+            }
           }
         },
         {
