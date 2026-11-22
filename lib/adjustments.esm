@@ -364,7 +364,7 @@
       }
     },
     "retrofit_share_removed": {
-      "description": "The share of a cohort's emissions one On-Road Retrofit row removes: the fraction of the model year retrofitted by the row's calendar year times the fraction of a retrofitted vehicle's emissions the retrofit removes. OnRoadRetrofitStrategy.compile() keeps two sums over the rows sharing a (pollutant, process, fuel, source type, calendar year, model year) key -- retrofitFactor += cum x (1 - eff), nonRetrofitFactor -= cum -- and buildSQL multiplies the worker's rows by retrofitFactor + nonRetrofitFactor, which is 1 minus the sum of this term (PLAN.md §7.3.79). A negative effectiveness, an increase (OnRoadRetrofitImporter.sql's NOTE), gives a negative share.",
+      "description": "The share of a cohort's emissions one On-Road Retrofit row removes: the fraction of the model year retrofitted by the row's calendar year times the fraction of a retrofitted vehicle's emissions the retrofit removes. OnRoadRetrofitStrategy.compile() keeps two sums over the rows sharing a (pollutant, process, fuel, source type, calendar year, model year) key -- retrofitFactor += cum x (1 - eff), nonRetrofitFactor -= cum -- and buildSQL multiplies the worker's rows by retrofitFactor + nonRetrofitFactor, which is 1 minus the sum of this term (PLAN.md §7.3.79). A negative effectiveness, an increase (OnRoadRetrofitImporter.sql's NOTE), gives a negative share. NONROAD's clcrtrft.f removes the same product per retrofit ID -- its fraction retrofitted, capped at 1, times its effectiveness -- and sums it over the IDs (PLAN.md §7.3.84).",
       "params": ["cum_fraction_retrofit", "retrofit_effective_fraction"],
       "body": { "op": "*", "args": ["cum_fraction_retrofit", "retrofit_effective_fraction"] }
     },
@@ -387,6 +387,768 @@
           ] },
           1.0,
           0.0
+        ]
+      }
+    },
+    "nr_retrofit_scc_matches": {
+      "description": "True when a NONROAD retrofit record's SCC reaches an equipment SCC: the same code, or a GLOBAL code whose zeroed tail stands for every SCC sharing its head -- `xxxx000000` the 4-digit family, `xxxxxxx000` the 7-digit equipment group (fndrtrft.f's filter 1 and chkasc.f). Two records' engines overlap when either one's SCC matches the other's (rtrftengovrlp.f). The SCC is a Float64 key, so the heads are exact. NONROAD's 'ALL' has no numeric form and is not read (PLAN.md §7.3.84).",
+      "params": [
+        "row_scc",
+        "scc"
+      ],
+      "body": {
+        "op": "or",
+        "args": [
+          {
+            "op": "==",
+            "args": [
+              "row_scc",
+              "scc"
+            ]
+          },
+          {
+            "op": "and",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      {
+                        "op": "floor",
+                        "args": [
+                          {
+                            "op": "/",
+                            "args": [
+                              "row_scc",
+                              1000000
+                            ]
+                          }
+                        ]
+                      },
+                      1000000
+                    ]
+                  },
+                  "row_scc"
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "op": "floor",
+                    "args": [
+                      {
+                        "op": "/",
+                        "args": [
+                          "row_scc",
+                          1000000
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "floor",
+                    "args": [
+                      {
+                        "op": "/",
+                        "args": [
+                          "scc",
+                          1000000
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "and",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "op": "*",
+                    "args": [
+                      {
+                        "op": "floor",
+                        "args": [
+                          {
+                            "op": "/",
+                            "args": [
+                              "row_scc",
+                              1000
+                            ]
+                          }
+                        ]
+                      },
+                      1000
+                    ]
+                  },
+                  "row_scc"
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  {
+                    "op": "floor",
+                    "args": [
+                      {
+                        "op": "/",
+                        "args": [
+                          "row_scc",
+                          1000
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "op": "floor",
+                    "args": [
+                      {
+                        "op": "/",
+                        "args": [
+                          "scc",
+                          1000
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "nr_retrofit_hp_covers": {
+      "description": "True when a NONROAD retrofit record's horsepower range holds an equipment point's average horsepower: above the minimum, which is EXCLUSIVE, and at or below the maximum (fndrtrft.f: `hpavg .LE. rtrfthpmn .OR. hpavg .GT. rtrfthpmx` skips).",
+      "params": [
+        "hp_min",
+        "hp_max",
+        "hp"
+      ],
+      "body": {
+        "op": "and",
+        "args": [
+          {
+            "op": ">",
+            "args": [
+              "hp",
+              "hp_min"
+            ]
+          },
+          {
+            "op": "<=",
+            "args": [
+              "hp",
+              "hp_max"
+            ]
+          }
+        ]
+      }
+    },
+    "nr_retrofit_years_so_far": {
+      "description": "How many of a NONROAD retrofit record's retrofit years have happened by the evaluation year: clcrtrft.f's `min(rtrftryen, iepyr) - rtrftryst + 1`. Its annual fraction is retrofitted once per year, so the cumulative fraction is the annual one times this. rdrtrft.f has already skipped a record whose first year is after the evaluation year.",
+      "params": [
+        "start_year",
+        "end_year",
+        "year"
+      ],
+      "body": {
+        "op": "+",
+        "args": [
+          {
+            "op": "-",
+            "args": [
+              {
+                "op": "min",
+                "args": [
+                  "end_year",
+                  "year"
+                ]
+              },
+              "start_year"
+            ]
+          },
+          1
+        ]
+      }
+    },
+    "nr_retrofit_row_is_invalid": {
+      "description": "True when rdrtrft.f REJECTS a /RETROFIT/ record, in its order: a retrofit year outside 1970-2060 (MINYEAR, MAXYEAR) or start after end; a model year outside 1900-2060 or start after end; an SCC that is not an equipment code or a global code of one (`scc_is_known`); a technology that is not ALL and has no THC deterioration (`tech_is_known`); an hp bound that is not 0, 9999 or one of blknon.f's hpclev levels, or a minimum not below the maximum; a negative fraction; an effectiveness outside 0-1; a pollutant other than HC, CO and NOx -- generateRetrofitFile writes NEIPollutantCode and initrtrft.f accepts HC, CO, NOX and PM, a code no MOVES pollutant has, so PM10's 'PM10-PRI' is rejected (measured, nr-retrofit-county-invalid); or an ID not above 0. ONE rejected record fails rdrtrft, intnon and the NONROAD run, and MOVES writes no row at all. The fraction and effectiveness are the PRINTED ones.",
+      "params": [
+        "start_year",
+        "end_year",
+        "first_model_year",
+        "last_model_year",
+        "scc_is_known",
+        "tech_is_known",
+        "hp_min",
+        "hp_max",
+        "fraction",
+        "effect",
+        "pollutant_id",
+        "retrofit_id"
+      ],
+      "body": {
+        "op": "or",
+        "args": [
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "start_year",
+                  1970
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "start_year",
+                  2060
+                ]
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "end_year",
+                  1970
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "end_year",
+                  2060
+                ]
+              }
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              "start_year",
+              "end_year"
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "first_model_year",
+                  1900
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "first_model_year",
+                  2060
+                ]
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "last_model_year",
+                  1900
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "last_model_year",
+                  2060
+                ]
+              }
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              "first_model_year",
+              "last_model_year"
+            ]
+          },
+          {
+            "op": "<",
+            "args": [
+              "scc_is_known",
+              0.5
+            ]
+          },
+          {
+            "op": "<",
+            "args": [
+              "tech_is_known",
+              0.5
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      0
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      1
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      3
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      6
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      11
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      16
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      25
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      40
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      50
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      75
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      100
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      175
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      300
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      600
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      750
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      1000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      1200
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      2000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      3000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_min",
+                      9999
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      0
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      1
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      3
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      6
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      11
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      16
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      25
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      40
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      50
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      75
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      100
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      175
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      300
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      600
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      750
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      1000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      1200
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      2000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      3000
+                    ]
+                  },
+                  {
+                    "op": "==",
+                    "args": [
+                      "hp_max",
+                      9999
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": ">=",
+            "args": [
+              "hp_min",
+              "hp_max"
+            ]
+          },
+          {
+            "op": "<",
+            "args": [
+              "fraction",
+              0
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "<",
+                "args": [
+                  "effect",
+                  0
+                ]
+              },
+              {
+                "op": ">",
+                "args": [
+                  "effect",
+                  1
+                ]
+              }
+            ]
+          },
+          {
+            "op": "and",
+            "args": [
+              {
+                "op": "!=",
+                "args": [
+                  "pollutant_id",
+                  1
+                ]
+              },
+              {
+                "op": "!=",
+                "args": [
+                  "pollutant_id",
+                  2
+                ]
+              },
+              {
+                "op": "!=",
+                "args": [
+                  "pollutant_id",
+                  3
+                ]
+              }
+            ]
+          },
+          {
+            "op": "<=",
+            "args": [
+              "retrofit_id",
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "nr_retrofit_engines_overlap": {
+      "description": "True when two NONROAD retrofit records reach a common engine (rtrftengovrlp.f): one's SCC matches the other's (`nr_retrofit_scc_matches`, either way round), their technologies are equal or either is ALL (engTechID -1), and their horsepower ranges intersect -- `max_a <= min_b` or `max_b <= min_a` separates them, the minimum being exclusive. vldrtrftrecs.f compares the records of ONE retrofit ID that overlap.",
+      "params": [
+        "scc_a",
+        "scc_b",
+        "tech_a",
+        "tech_b",
+        "hp_min_a",
+        "hp_max_a",
+        "hp_min_b",
+        "hp_max_b"
+      ],
+      "body": {
+        "op": "and",
+        "args": [
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "nr_retrofit_scc_matches",
+                "bindings": {
+                  "row_scc": "scc_a",
+                  "scc": "scc_b"
+                }
+              },
+              {
+                "op": "apply_expression_template",
+                "args": [],
+                "name": "nr_retrofit_scc_matches",
+                "bindings": {
+                  "row_scc": "scc_b",
+                  "scc": "scc_a"
+                }
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "==",
+                "args": [
+                  "tech_a",
+                  -1
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  "tech_b",
+                  -1
+                ]
+              },
+              {
+                "op": "==",
+                "args": [
+                  "tech_a",
+                  "tech_b"
+                ]
+              }
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              "hp_max_a",
+              "hp_min_b"
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              "hp_max_b",
+              "hp_min_a"
+            ]
+          }
         ]
       }
     }
