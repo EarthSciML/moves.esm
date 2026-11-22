@@ -27,6 +27,12 @@ default database (plus the county, project or user input database a run names), 
 status; what a RunSpec can select that the model does not compute is counted by the model's
 `run_*Unported` variables rather than left silent.
 
+**What is not done (2026-11-21).** [`docs/gaps.md`](docs/gaps.md) lists what MOVES 5 does that
+the model does not, with evidence. The largest gaps were SILENT: most county and project input
+tables, the alternate VMT and starts inputs, the RunSpec's output options (breakdown, units,
+geographic detail), onroad NATION and STATE runs, and on NONROAD every process but running exhaust,
+CO2, NH3 and the user input tables. Turning each into a counted refusal comes first; porting follows.
+
 ---
 
 ## 1. What the probes established
