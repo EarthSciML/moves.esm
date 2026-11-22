@@ -756,6 +756,11 @@
       "default": 0,
       "description": "Rows in IMCoverage: 2,024,874 in the default database (the national table, every county and year with an I/M program), 0 in every execution database of the fixture catalogue (Washtenaw has no I/M program)."
     },
+    "n_inputimcoverage": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in the INPUT database's IMCoverage, declared by the domain: 0 in a DEFAULT-domain run (no domain database) and in every Washtenaw county and project database (the county has no I/M program)."
+    },
     "n_imfactor": {
       "type": "integer",
       "default": 0,
@@ -1856,6 +1861,10 @@
     "imcoverage_rows": {
       "kind": "interval",
       "size": "n_imcoverage"
+    },
+    "inputimcoverage_rows": {
+      "kind": "interval",
+      "size": "n_inputimcoverage"
     },
     "imfactor_rows": {
       "kind": "interval",
@@ -20781,7 +20790,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "1 when the RunSpec's domain is DEFAULT (or NATIONAL, its deprecated spelling). It switches the I/M blend: only a DEFAULT-domain run copies the default database's IMCoverage (InputDataManager.java:1435 and 2816, `includeIMCoverage = includeFuelSupply`), and a SINGLE-county or PROJECT run takes IMCoverage from its domain database alone, which no catalogue here mounts."
+          "description": "1 when the RunSpec's domain is DEFAULT (or NATIONAL, its deprecated spelling). It switches the I/M blend: only a DEFAULT-domain run copies the default database's IMCoverage (InputDataManager.java:1435 and 2816, `includeIMCoverage = includeFuelSupply`); a SINGLE-county or PROJECT run takes IMCoverage from its domain database alone, which the domain document declares (`db_input_imcoverage`) and the model counts rather than blends (`run_imUnported`)."
         },
         "run_domainRowCount": {
           "type": "unknown",
@@ -27240,7 +27249,94 @@
           "shape": [
             "run_rows"
           ],
-          "description": "IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects -- the programs by which BaseRateCalculator and the venting calculator blend meanBaseRateIM into meanBaseRate (`rt_imAdjustFract`, `rtMode_imBlendedRate`, PLAN.md §7.3.83). 0 in every run of the corpus but the I/M captures."
+          "description": "The DEFAULT database's IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects -- the programs by which BaseRateCalculator and the venting calculator blend meanBaseRateIM into meanBaseRate in a DEFAULT-domain run (`rt_imAdjustFract`, `rtMode_imBlendedRate`, PLAN.md §7.3.83). 0 in every run of the corpus but the I/M captures. Counted only where an input database's IMCoverage replaces them (`run_imUnported`)."
+        },
+        "imci_polProcessID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputimcoverage_rows"
+          ],
+          "description": "IMCoverage.polProcessID, input side.",
+          "update": {
+            "kind": "data",
+            "source": "db_input_imcoverage",
+            "from": {
+              "file_variable": "polProcessID"
+            }
+          }
+        },
+        "imci_countyID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputimcoverage_rows"
+          ],
+          "description": "IMCoverage.countyID, input side.",
+          "update": {
+            "kind": "data",
+            "source": "db_input_imcoverage",
+            "from": {
+              "file_variable": "countyID"
+            }
+          }
+        },
+        "imci_yearID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputimcoverage_rows"
+          ],
+          "description": "IMCoverage.yearID, input side.",
+          "update": {
+            "kind": "data",
+            "source": "db_input_imcoverage",
+            "from": {
+              "file_variable": "yearID"
+            }
+          }
+        },
+        "imci_useIM": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "inputimcoverage_rows"
+          ],
+          "description": "IMCoverage.useIMyn decoded, input side: 1 for 'Y' (either case), else 0.",
+          "update": {
+            "kind": "data",
+            "source": "db_input_imcoverage",
+            "from": {
+              "file_variable": "useIMyn",
+              "codes": {
+                "map": {
+                  "y": 1
+                },
+                "case_insensitive": true,
+                "unmapped": 0
+              }
+            }
+          }
+        },
+        "run_inputIMProgramRows": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "The domain (or input) database's IMCoverage rows with useIMyn 'Y' at a county, calendar year and pollutant-process the RunSpec selects. In SINGLE-county and PROJECT domain they are the only programs MOVES applies (InputDataManager.java:1433-1435, 2816, `includeIMCoverage = includeFuelSupply`), and in DEFAULT domain an input database's rows stop MOVES copying the default's (InputDataManager.java:2816-2823). The model blends only the default database's programs, and only in DEFAULT domain (`rt_imAdjustFract`), so every one of these is counted (`run_imUnported`, PLAN.md §7.3.85)."
+        },
+        "run_inputIMRowCount": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_rows"
+          ],
+          "description": "Rows of the input side of IMCoverage, whatever they say. More than 0 in a DEFAULT-domain run means MOVES does not copy the default database's IMCoverage at all (InputDataManager.java:2816-2823: `getRowCount(destination, \"IMCoverage\") > 0`), so the default's programs the model blends are not the ones MOVES applies (`run_imUnported`)."
         },
         "run_imProgramRowsUnchecked": {
           "type": "unknown",
@@ -27256,7 +27352,7 @@
           "shape": [
             "run_rows"
           ],
-          "description": "What of an I/M program the model does not compute, counted by `run_selectionUnported` (PLAN.md §7.3.83; F95 before it): every program row in a SINGLE-county or PROJECT run (`run_imProgramRows` x (1 - `run_isDefaultDomain`)) -- MOVES takes IMCoverage there from the domain database alone (InputDataManager.java:1435, 2816), which no catalogue here mounts, so the default table the model reads is not the one MOVES applies -- and every program row at a pollutant-process no capture checks the blend at (`run_imProgramRowsUnchecked`). The blend itself is ported: `im-cook` (DEFAULT domain, Inventory), `im-cook-venting` and `rates-im` check THC running, THC start, CO running, CO start, NOx running, NOx start, venting THC. Before the port this counted every program row, and the model emitted the un-inspected rates, 6-12% high per pollutant in Cook County."
+          "description": "What of an I/M program the model does not compute, counted by `run_selectionUnported`. (1) Every program row of the DOMAIN database's IMCoverage at the run's county, year and selected pollutant-processes (`run_inputIMProgramRows`): in SINGLE-county and PROJECT domain MOVES takes IMCoverage from the domain database alone (InputDataManager.java:1433-1435, 2816, `includeIMCoverage = includeFuelSupply`) and the model blends nothing there (`rt_imAdjustFract` is DEFAULT-domain only), so a county database stating a program would be silently un-inspected. The DEFAULT database's rows are NOT counted in those domains -- MOVES does not read them, and neither does the model. (2) In a DEFAULT-domain run, the default's program rows at a pollutant-process no capture checks the blend at (`run_imProgramRowsUnchecked`), and, when an input database states any IMCoverage row, every default program row the model blends (`run_imProgramRows`), because MOVES then copies none of the default's (InputDataManager.java:2816-2823). The blend itself is ported: `im-cook` (DEFAULT domain, Inventory), `im-cook-venting` and `rates-im` check THC running, THC start, CO running, CO start, NOx running, NOx start, venting THC. PLAN.md §7.3.83, §7.3.85. Before §7.3.85 this counted the DEFAULT database's rows in SINGLE and PROJECT domain, which refused a county the default covers and passed a county database's own program silently."
         }
       },
       "equations": [
@@ -133309,6 +133405,80 @@
           }
         },
         {
+          "lhs": "run_inputIMProgramRows",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "inputimcoverage_rows"
+              },
+              "c": {
+                "from": "runspeccounty_rows"
+              },
+              "y": {
+                "from": "runspecyear_rows"
+              },
+              "p": {
+                "from": "runspecpollutantprocess_rows"
+              }
+            },
+            "join": [
+              {
+                "on": [
+                  [
+                    "imci_countyID",
+                    "rsc_countyID"
+                  ],
+                  [
+                    "imci_yearID",
+                    "rsy_yearID"
+                  ],
+                  [
+                    "imci_polProcessID",
+                    "rspp_polProcessID"
+                  ]
+                ]
+              }
+            ],
+            "expr": {
+              "op": "index",
+              "args": [
+                "imci_useIM",
+                "i"
+              ]
+            }
+          },
+          "_comment": "BaseRateCalculator.sql's extract of IMCoverage (`countyID = ##county## AND yearID = ##year## AND useIMyn = 'Y'`), on the domain database's table."
+        },
+        {
+          "lhs": "run_inputIMRowCount",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_rows"
+              },
+              "i": {
+                "from": "inputimcoverage_rows"
+              }
+            },
+            "expr": 1.0
+          }
+        },
+        {
           "lhs": "run_imProgramRowsUnchecked",
           "rhs": {
             "op": "faq",
@@ -133482,40 +133652,66 @@
               "op": "+",
               "args": [
                 {
+                  "op": "index",
+                  "args": [
+                    "run_inputIMProgramRows",
+                    "n"
+                  ]
+                },
+                {
                   "op": "*",
                   "args": [
                     {
                       "op": "index",
                       "args": [
-                        "run_imProgramRows",
+                        "run_isDefaultDomain",
                         "n"
                       ]
                     },
                     {
-                      "op": "-",
+                      "op": "+",
                       "args": [
-                        1.0,
                         {
                           "op": "index",
                           "args": [
-                            "run_isDefaultDomain",
+                            "run_imProgramRowsUnchecked",
                             "n"
+                          ]
+                        },
+                        {
+                          "op": "ifelse",
+                          "args": [
+                            {
+                              "op": ">",
+                              "args": [
+                                {
+                                  "op": "index",
+                                  "args": [
+                                    "run_inputIMRowCount",
+                                    "n"
+                                  ]
+                                },
+                                0.0
+                              ]
+                            },
+                            {
+                              "op": "index",
+                              "args": [
+                                "run_imProgramRows",
+                                "n"
+                              ]
+                            },
+                            0.0
                           ]
                         }
                       ]
                     }
                   ]
-                },
-                {
-                  "op": "index",
-                  "args": [
-                    "run_imProgramRowsUnchecked",
-                    "n"
-                  ]
                 }
               ]
             }
-          }
+          },
+          "_comment": "The domain database's programs in every domain; the default's only in DEFAULT domain, where the model blends them -- at a pair no capture checks, or under an input IMCoverage that MOVES would read instead."
         }
       ]
     }

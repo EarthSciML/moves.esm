@@ -51,6 +51,28 @@ the precedence the model writes has nothing to choose between.
 tables with ZERO rows, typed by the default database: a DEFAULT-domain run has
 no input database, so the input side of every row merge is empty there.
 
+`--empty <outdir> <movesdb-dir> T1,T2,...` writes each named table with ZERO rows,
+typed by the default database, and nothing else -- never over a file that is
+already there. It is how a scale-input database's document declares a table the
+database holds only as `INSERT ... SELECT` copies of the default's rows, or does
+not hold at all: the INPUT side of the merge states nothing the default does not
+(PLAN.md §7.3.85), and the model counts any row a domain database states there
+that differs from the default's.
+
+`--runspec-output <runspec.xml> <out.parquet>` writes the RunSpec's OUTPUT settings,
+which MOVES writes nowhere in the execution database either (PLAN.md §7.3.85): one
+row per setting, a single string column `option` spelled `<setting>=<value>` --
+each `<outputemissionsbreakdownselection>` flag (`breakdown.<tag>=<selected>`), the
+three `<outputfactors>` (`timefactors=<selected>:<units>`, `distancefactors=...`,
+`massfactors=<selected>:<units>:<energyunits>`), `geographicoutputdetail`, one
+`geographicselection=<type>` per selection, the seven activity-output flags
+(`outputvmtdata`, `outputsho`, `outputsh`, `outputshp`, `outputshidling`,
+`outputstarts`, `outputpopulation`), whether a `<genericcounty>` is given, how many
+calculators `<donotexecute>` names and `<doNotPerformFinalAggregation>`.
+The model decodes each against the one configuration it computes and counts the
+rest (`run_outputOptionsUnported`, `run_geoSelectionUnported`,
+`run_activityOutputUnported`).
+
 `--internal-control-strategies <runspec.xml> <outdir>` writes the one table a
 RunSpec's `<internalcontrolstrategies>` element stands for,
 `runspecinternalcontrolstrategy.parquet`: a row per strategy, its class name and
@@ -60,8 +82,11 @@ element writes the table with no rows.
 
 usage: build-scale-input-db.py <setup.sql> <runspec.xml> <movesdb-dir> <outdir> [--copy T1,T2,...]
        build-scale-input-db.py --default-domain <outdir> [<movesdb-dir> T1,T2,...]
+       build-scale-input-db.py --empty <outdir> <movesdb-dir> T1,T2,...
        build-scale-input-db.py --internal-control-strategies <runspec.xml> <outdir>
+       build-scale-input-db.py --runspec-output <runspec.xml> <out.parquet>
 """
+import json
 import os
 import re
 import sys
@@ -261,6 +286,48 @@ def write_strategies(outdir, xml_path):
     print("%-30s %d row(s)" % ("runspecinternalcontrolstrategy", len(names)))
 
 
+ACTIVITY_FLAGS = ("outputvmtdata", "outputsho", "outputsh", "outputshp", "outputshidling",
+                  "outputstarts", "outputpopulation")
+
+
+def runspec_output_options(xml_path):
+    """The RunSpec's output settings as `<setting>=<value>` strings, in document order."""
+    root = ET.parse(xml_path).getroot()
+    out = []
+    node = root.find("outputemissionsbreakdownselection")
+    for flag in (node if node is not None else []):
+        out.append("breakdown.%s=%s" % (flag.tag.lower(), (flag.get("selected") or "false").lower()))
+    node = root.find("outputfactors")
+    for f in (node if node is not None else []):
+        parts = [(f.get("selected") or "false").lower(), f.get("units") or ""]
+        if f.tag.lower() == "massfactors":
+            parts.append(f.get("energyunits") or "")
+        out.append("%s=%s" % (f.tag.lower(), ":".join(parts)))
+    node = root.find("geographicoutputdetail")
+    out.append("geographicoutputdetail=%s" % (node.get("description") if node is not None else ""))
+    node = root.find("geographicselections")
+    for g in (node if node is not None else []):
+        out.append("geographicselection=%s" % g.get("type"))
+    for tag in ACTIVITY_FLAGS:
+        node = root.find(tag)
+        out.append("%s=%s" % (tag, (node.get("value") if node is not None else "false").lower()))
+    node = root.find("genericcounty")
+    out.append("genericcounty=%s" % ("true" if node is not None else "false"))
+    # RunSpecXML.java:225-231: calculators the RunSpec tells MOVES not to run, and
+    # the switch that skips MOVES's final aggregation; both change MOVESOutput.
+    node = root.find("donotexecute")
+    out.append("donotexecute=%d" % (len(node) if node is not None else 0))
+    node = next((n for n in root if n.tag.lower() == "donotperformfinalaggregation"), None)
+    out.append("donotperformfinalaggregation=%s" % ((node.get("selected") or "false").lower() if node is not None else "false"))
+    return out
+
+
+def write_runspec_output(xml_path, out_path):
+    options = runspec_output_options(xml_path)
+    pq.write_table(pa.table({"option": pa.array(options, pa.string())}), out_path)
+    print("%-30s %d row(s)" % (os.path.basename(out_path), len(options)))
+
+
 def write_rows(movesdb, outdir, table, cols, rows):
     name, schema = default_schema(movesdb, table)
     data = {f.name: [] for f in schema}
@@ -301,6 +368,31 @@ if __name__ == "__main__":
         if len(sys.argv) == 5:
             for table in sys.argv[4].split(","):
                 write_rows(sys.argv[3], sys.argv[2], table, [], [])
+        sys.exit(0)
+    if len(sys.argv) == 5 and sys.argv[1] == "--empty":
+        os.makedirs(sys.argv[2], exist_ok=True)
+        for table in sys.argv[4].split(","):
+            if schema_only(sys.argv[3], table):
+                # Shipped as `<t>.schema.json` alone (Starts): typed by that.
+                spec = json.load(open(os.path.join(sys.argv[3], table + ".schema.json")))
+                types = {"Int64": pa.int64(), "Float64": pa.float64(), "Utf8": pa.string()}
+                schema = pa.schema([(c["name"], types[c["arrow_type"]]) for c in spec["columns"]])
+                path = os.path.join(sys.argv[2], spec["name"] + ".parquet")
+                if os.path.exists(path):
+                    print("%-30s exists: kept" % spec["name"])
+                    continue
+                pq.write_table(schema.empty_table(), path)
+                print("%-30s 0 row(s), typed by its schema.json" % spec["name"])
+                continue
+            name, _ = default_schema(sys.argv[3], table)
+            if os.path.exists(os.path.join(sys.argv[2], name + ".parquet")):
+                print("%-30s exists: kept" % name)
+                continue
+            write_rows(sys.argv[3], sys.argv[2], table, [], [])
+        sys.exit(0)
+    if len(sys.argv) == 4 and sys.argv[1] == "--runspec-output":
+        os.makedirs(os.path.dirname(sys.argv[3]) or ".", exist_ok=True)
+        write_runspec_output(sys.argv[2], sys.argv[3])
         sys.exit(0)
     if len(sys.argv) == 4 and sys.argv[1] == "--internal-control-strategies":
         os.makedirs(sys.argv[3], exist_ok=True)
