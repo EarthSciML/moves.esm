@@ -31,7 +31,7 @@ status; what a RunSpec can select that the model does not compute is counted by 
 the model does not, with evidence. The largest gaps were SILENT: most county and project input
 tables, the alternate VMT and starts inputs, the RunSpec's output options (breakdown, units,
 geographic detail), onroad NATION and STATE runs, and on NONROAD every process but running exhaust,
-CO2, NH3 and the user input tables. Turning each into a counted refusal comes first; porting follows.
+CO2, NH3 and the user input tables. Turning each into a counted refusal comes first; porting follows. *[NONROAD: every one counted or reported, 2026-11-21, §7.3.86.]*
 
 ---
 
@@ -9462,6 +9462,103 @@ tests and emit byte-identical relations. The twin's relation is byte-identical b
 port. The Python binding loads both new runspecs. tools/check-conventions.py, faq-filter-lint.py,
 check-sources.py (its new check 8: a nonroad RunSpec reads its execution database's retrofit row count)
 and check-reachability-counts.py pass.
+
+#### 7.3.86 NONROAD: nothing a RunSpec can ask for stays silent -- processes, pollutants, input databases, output settings counted; activity output reported (F106-F108)
+
+2026-11-21. The gap audit (docs/gaps-nonroad.md) found four NONROAD capabilities a RunSpec reaches that the
+model neither computed nor refused: a run asking for them got a plausible wrong number. Each is now a count
+asserted 0 on every verified run, or a suite failure; nothing is ported here.
+
+**Finding F106: every nonroad process but running exhaust, and CO2 and NH3 at running exhaust, were dropped
+without a sound (pre-existing).** `rpp_isEmitted` was 0 for them, so they had no row and nothing counted it.
+`run_polProcessUnported` (asserted 0 by tools/check-nonroad-shape.py) counts a selected pollutant-process
+that MOVES registers for NONROAD (`pollutantprocessassoc.isAffectedByNonroad`, newly mounted by both
+catalogues) at a process whose THC NONROAD writes, and that the model emits no row for. That is crankcase
+(15, NonroadOutputDataLoader.java:442-447), the seven evaporative and refueling processes (18-21, 30-32,
+:720-768 from the `.BMV`) with every NRHCSpeciation species and NRAirToxics toxic there, and CO2 (90,
+:424-429) and NH3 (30, :485-503) at running exhaust -- at process 1 the generic rule leaves exactly those
+two, measured against the five toxic ratio tables. Benzene at 22-24 (rec-marine hose permeation), which
+`nr-pleasure-craft-state` selects and MOVES writes no row for, reads 0 because MOVES registers no NONROAD THC
+there. A toxic selected without its parent species counts too (the RunSpec editor requires the parent).
+
+**Finding F107: a nonroad input database was read as the default database (pre-existing).** MOVES's
+`mergeNonRoad` copies the 38 NonroadTableFilter.csv tables from every user and domain database ahead of the
+default; every RunSpec document reads the default except `nrretrofitfactors`. The model cannot see a table a
+document does not mount, so the guard is tooling: `tools/check-sources.py` check 9 compares, for every source
+`moves-nonroad.esm` mounts, the snapshot's execution-database copy (MOVES's merged product) with the source
+the document reads. Every copy row must be a source row -- exactly: decimal text parsed to the source's
+double was equal on all 14 captures with no tolerance -- and, because a user nrFuelSupply REPLACES the
+default (InputDataManager.java:3822), every default nrFuelSupply row at the run's fuel region, fuel year and
+month group must be in the copy. MOVES's own rewrites are normalized, not refused: DefaultDataMaker's
+fuelFormulation sweep (NULL to 0; volToWtPercentOxy recalculated, 0 without oxygenates; T50/T90/e200/e300,
+which the model does not read) and its default-formulation fill rows in nrFuelSupply. The tables PreAggSTATE
+and PreAggNATION rewrite (zonemonthhour, zone, regioncounty; at nation also nrbaseyearequippopulation,
+nrfuelsupply, nrgrowthpatternfinder, nrmonthallocation, nrstatesurrogate) cannot show what an input
+database stated, so a state or nation run naming one is refused. A failing run is fixed by mounting its
+copy, which the model then reads. Not compared, because nothing the model emits reads them: nrevapemissionrate,
+nrcrankcaseemissionrate and countyyear (they feed only processes F106 counts), and the hour-allocation,
+age-category, hp-bin, surrogate-name, growth-pattern and process-group tables (docs/gaps-nonroad.md §6).
+
+**Finding F108: DefaultDataMaker re-files gasoline formulations by ethanol volume and the model does not
+(pre-existing, unreached).** DefaultDataMaker.java:54-61 rewrites `fuelSubtypeID` from `ETOHVolume` before any
+calculator runs; formulations 2675 and 2676 (7.85% and 8.775% ethanol) are subtype 12 in the default
+database and 13 in every execution copy. The model reads 12. Their supply is fuel years 2010-2013 in one
+region, which no verified run reaches, and nrMethaneTHCRatio's subtype-12 and -13 rows are equal; check 9
+refuses a run whose supply reaches a re-filed formulation.
+
+**Output settings.** MOVES groups NONROAD output by the RunSpec's breakdown and geographic detail
+(AggregationSQLGenerator.java:946-1060, :1260-1470) and converts to its mass unit, none of which is in the
+execution database. Following §7.3.81 (conventions §132), `db_runspecoutputsettings` is a per-run declaration
+mounted EMPTY by both catalogues (`inputs/default-nonroad/runspecoutputsettings.parquet`) and written for a
+departing run by `tools/nonroad-output-settings.py`; `run_outputSettingUnported` (asserted 0) counts one per
+departing setting: modelyear, fueltype, emissionprocess or onroadscc off; sourceusetype, sector/segment,
+engtechid or hpclass on; geographic detail other than the run's scale (`run_outputLevel`); mass unit other
+than grams. Check 10 fails a document whose RunSpec XML departs without the declaration, or whose declaration
+is not its XML's. N/A for a NONROAD row: fuelsubtype and regclassid (the loader leaves the column NULL),
+roadtype (roadTypeID only), onroadoffroad, movesvehicletype, distinguishparticulates, offroadscc,
+outputtimestep (:1496, no time aggregation for NONROAD). All 14 captures ask for exactly what the model emits.
+
+**Activity output is reported, not refused.** MOVES writes MOVESActivityOutput for every NONROAD run whatever
+its activity selections (all 14 captures select none and have it). `run_activityOutputRows` =
+`run_outputCohortCount` x 4 (hours, population, average hp, load factor), x 6 with a /RETROFIT/ packet
+(FracRetro, UnitsRetro), is printed by tools/check-nonroad-shape.py. Measured equal to every capture's
+MOVESActivityOutput row count (144 to 23,108).
+
+**Probes** (modified copies in `/scratch.local/ctessum/count-nonroad/`, never the repo):
+- `run_polProcessUnported`: `nr-logging-county` with 115, 118-121, 130-132, 9001, 3001, 2015 (benzene, crankcase),
+  2022 (benzene, rec-marine hose) and 501 (methane, emitted) added to `runspecpollutantprocess` counts **11**:
+  every added selection but 2022 and 501.
+- `run_outputSettingUnported`: `nr-logging-county` declaring its own XML's settings counts 0; with model year
+  off, hp class on, NATION detail and pounds, **4**. `nr-construction-state` (STATE) and `nr-commercial-nation`
+  (NATION) declaring their own XMLs' settings count 0, which checks `run_outputLevel` at both pseudo-scales.
+- Check 9 (a probe SNAPSHOTS tree of symlinks with one table rewritten): one nrsourceusetype load factor
+  changed in `nr-lawn-garden-county` fails with **1** row; two populations changed and one row added in
+  `nr-logging-county`, **3**; a user nrFuelSupply that drops the run region's rows, **6** default rows missing;
+  one hour of zonemonthhour 5 F warmer in `nr-recreational-county`, **1**; a state run naming an input
+  database, refused on its **3** PreAgg-rewritten tables; a supply row reaching formulation 2675 in fuel year
+  2020, the row (**1**) and F108.
+- Check 10: `hpclass` selected in `nr-logging-county`'s XML, or NATION detail in `nr-industrial-county`'s,
+  fails the undeclared document.
+
+**Every verified run reads 0.** All 14 `runspecs/nonroad/` documents, re-emitted with tools/emit-oracle-table.py: `run_polProcessUnported` 0
+and `run_outputSettingUnported` 0, tools/check-nonroad-shape.py passes, and `run_activityOutputRows` equals the
+snapshot's MOVESActivityOutput row count on every one. Checks 9 and 10 pass on all 14.
+
+**Unchanged.** Every RunSpec relation byte-identical (`cmp`) to one emitted from the base commit 2044d94 in this lane,
+and every earlier shape scalar the same; the two nonroad fixtures pass their inline tests (299 and 4) and emit
+relations byte-identical to the main tree's `.fixtures-run/`. The Python binding loads the changed documents.
+tools/check-conventions.py, faq-filter-lint.py and check-sources.py pass.
+
+**Cost.** User CPU / peak RSS per run, before -> after: the five whole-inventory runs 60.5 -> 67.1 s / 3.18 -> 3.16 GB
+(agriculture), 61.8 -> 63.7 s (airport), 63.1 -> 58.9 s (industrial), 69.9 -> 64.9 s (mixed), 69.6 -> 63.4 s /
+3.37 -> 3.38 GB (railroad); the rest 4-12 s either way -- within run-to-run noise, the new joins are over a
+786-row registry and a 0- or 1-row settings table. tools/check-sources.py 4 s -> 13 s, 0.14 -> 1.6 GB peak
+(check 9 parses each run's execution copies; zonemonthhour is read on the four columns NONROAD uses).
+
+**Still not computed (counted or reported):** every NONROAD process but running exhaust, CO2, NH3, any
+user input table (a document can mount its run's copy, unverified by a capture), output settings other than
+the model's, MOVESActivityOutput. Pre-existing, not this lane's: tools/check-reachability-counts.py reports
+14 of 181 document claims stale (corpus denominator 136, documents 133) on the base commit too.
 
 ### 7.4 Upstream asks
 

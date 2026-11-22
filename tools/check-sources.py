@@ -54,6 +54,29 @@ forgetting one column is both easy and silent.
      run as un-retrofitted (PLAN.md §7.3.84). This compares the row count the
      document reads with the snapshot's.
 
+  9. a `runspecs/nonroad/` document reads, table by table, what its run's
+     execution database holds (PLAN.md §7.3.86). InputDataManager.mergeNonRoad
+     copies every NonroadTableFilter.csv table from each user and domain input
+     database ahead of the default (a user nrFuelSupply REPLACES the default),
+     so the snapshot's execution copy is what MOVES read; the model reads the
+     default database unless the document shadows a source. Every row of the
+     execution copy must be a row of the source the document reads (exactly:
+     decimal text parsed to the source's double, measured equal on all 14
+     captures), and for nrFuelSupply every default row at the run's keys must
+     be in the copy. MOVES's own rewrites are not input: fuelFormulation is
+     compared as DefaultDataMaker leaves it, nrFuelSupply without
+     DefaultDataMaker's default-formulation fills, and the tables PreAggSTATE /
+     PreAggNATION rewrite at state and nation scale are skipped -- and REFUSED
+     when the run names a user or domain database, which their rewrite hides.
+     A run whose supply reaches a formulation DefaultDataMaker re-files to
+     another subtype is refused too (F108).
+
+ 10. a `runspecs/nonroad/` document declares its RunSpec's output settings
+     (`db_runspecoutputsettings`, written by tools/nonroad-output-settings.py)
+     whenever they are not the ones the model emits: the breakdown, the
+     geographic detail and the mass unit are in the RunSpec XML only, and the
+     model counts what it is told (`run_outputSettingUnported`).
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -438,6 +461,238 @@ def check_nonroad_retrofit(rel: str, doc: pathlib.Path, d: dict) -> None:
              f"document reads {have}: the model would apply the wrong retrofit programs")
 
 
+# Check 9. Tables the execution database holds REWRITTEN rather than merged,
+# so its copy is not what an input database stated: PreAggSTATE.sql and
+# PreAggNATION.sql aggregate them into the state's pseudo-county or the nation
+# before NONROAD reads them, which the model does itself from the default
+# tables (PLAN.md §7.3.34-7.3.36). Keyed by the run's level: 1 state, 0 nation.
+NR_PREAGG = {
+    1: {"zonemonthhour", "zone", "regioncounty"},
+    0: {"zonemonthhour", "zone", "regioncounty", "nrbaseyearequippopulation", "nrfuelsupply",
+        "nrgrowthpatternfinder", "nrmonthallocation", "nrstatesurrogate"},
+}
+_nr_tables: dict = {}
+
+
+def _ethanol_subtype(subtype, etoh):
+    """DefaultDataMaker.java:54-61: a gasoline-family formulation's subtype by its
+    ethanol volume, applied to the execution database before any calculator."""
+    if subtype not in (10, 11, 12, 13, 14, 15, 51, 52, 18) or etoh is None:
+        return subtype
+    for new, lo, hi in ((10, None, 0.10), (12, 9, 12.5), (13, 6, 9), (14, 0.10, 6), (15, 12.5, 17.5),
+                        (51, 70.5, 100.0000001), (52, 50.5, 70.5), (18, 17.5, 50.5)):
+        if new == 10 and subtype == 11:
+            continue  # "and fuelSubtypeID <> 11"
+        if (lo is None or etoh >= lo) and etoh < hi:
+            return new
+    return subtype
+
+
+def _nr_table(path: pathlib.Path, like=None):
+    """A table with lower-cased column names, cast to `like`'s schema (the
+    execution database stores FLOAT columns as decimal text, the default
+    database's parquet as doubles), a NULL formulation property read as 0."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    key = (path, None if like is None else str(like.schema))
+    hit = _nr_tables.get(key)
+    if hit is None:
+        t = pq.read_table(path)
+        t = t.rename_columns([c.lower() for c in t.column_names])
+        if "fuelformulation" in path.name.lower():
+            # DefaultDataMaker.java:66-80 rewrites the execution copy before any
+            # calculator reads it: NULL properties become 0, which is how the model
+            # reads a NULL (`fuel_property_or_zero`); volToWtPercentOxy is
+            # recalculated, and is 0 there for every formulation without
+            # oxygenates, where the model multiplies it by a zero volume; T50, T90,
+            # e200 and e300 are filled in, which the model does not read. So the
+            # formulation is compared on the columns the model reads, as it reads them.
+            import pyarrow.compute as pc
+            t = t.select(["fuelformulationid", "fuelsubtypeid", "etohvolume", "mtbevolume", "etbevolume",
+                          "tamevolume", "voltowtpercentoxy", "sulfurlevel", "rvp"])
+            if like is not None:
+                t = t.cast(like.schema)
+            t = pa.table({c: (t[c].fill_null(0) if pa.types.is_floating(t[c].type) else t[c])
+                          for c in t.column_names})
+            oxy = pc.add(pc.add(t["etohvolume"], t["mtbevolume"]), pc.add(t["etbevolume"], t["tamevolume"]))
+            t = t.set_column(t.column_names.index("voltowtpercentoxy"), "voltowtpercentoxy",
+                             pc.if_else(pc.equal(oxy, 0), pa.scalar(0.0, t["voltowtpercentoxy"].type),
+                                        t["voltowtpercentoxy"]))
+            # DefaultDataMaker.java:54-61 also re-files a gasoline formulation's
+            # subtype by its ethanol volume. The model does not (F108); the
+            # formulations it re-files are checked against the run's supply in
+            # check_nonroad_inputs, and compared here as MOVES files them.
+            sub = [_ethanol_subtype(s, e) for s, e in
+                   zip(t["fuelsubtypeid"].to_pylist(), t["etohvolume"].to_pylist())]
+            t = t.set_column(t.column_names.index("fuelsubtypeid"), "fuelsubtypeid",
+                             pa.array(sub, t["fuelsubtypeid"].type))
+        else:
+            if "zonemonthhour" in path.name.lower():
+                # NONROAD reads the hourly temperature and nothing else of it (the
+                # .OPT's daytime mean, and tmin/tmax for evaporation); the humidity
+                # columns are 930,816 rows of decimal text it never parses.
+                t = t.select(["monthid", "zoneid", "hourid", "temperature"])
+            if like is not None:
+                t = t.select(like.column_names).cast(like.schema)
+        hit = t
+        if like is None:  # a model source, which several runs compare against
+            _nr_tables[key] = t
+    return hit
+
+
+_nr_rows: dict = {}
+
+
+def _rows(t):
+    import collections
+    hit = _nr_rows.get(id(t))
+    if hit is not None and hit[0] is t:
+        return hit[1]
+    rows = collections.Counter(zip(*[t[c].to_pylist() for c in t.column_names]))
+    if any(t is v for v in _nr_tables.values()):  # a model source: kept for the next run
+        _nr_rows[id(t)] = (t, rows)
+    return rows
+
+
+def check_nonroad_inputs(rel: str, doc: pathlib.Path, d: dict) -> int:
+    """Check 9: every table the model reads holds, in the run's execution
+    database, nothing the model does not read. Returns the rows found wrong."""
+    if not rel.startswith("runspecs/nonroad/"):
+        return 0
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    tables = SNAPSHOTS / doc.stem / "tables"
+    exec_of = {p.name.split("__")[-1][:-len(".parquet")]: p
+               for p in tables.glob("db__movesexecution*__*.parquet")}
+    if "runspeccounty" not in exec_of:
+        return 0
+    catalogue = json.loads((HERE / "moves-nonroad.esm").read_text())
+    county = pq.read_table(exec_of["runspeccounty"]).column("countyID").to_pylist()
+    level = 0 if county == [0] else (1 if len(county) == 1 and county[0] % 1000 == 0 else 2)
+    xml = SNAPSHOTS.parent / "fixtures" / (doc.stem + ".xml")
+    has_user_db = False
+    if xml.exists():
+        import xml.etree.ElementTree as ET
+        root = ET.parse(xml).getroot()
+        names = [e.get("databasename") or "" for tag in ("databaseselections/databaseselection",
+                 "scaleinputdatabase", "inputdatabase") for e in root.findall(tag)]
+        has_user_db = any(n.strip() for n in names)
+    bad = 0
+    for name, entry in catalogue["data_sources"].items():
+        table = name[len("db_"):]
+        if table.startswith("runspec") or table not in exec_of:
+            continue
+        own = (d.get("data_sources") or {}).get(name)
+        src, base = (own, doc.parent) if own is not None else (entry, HERE)
+        path = resolve((src.get("source") or {}).get("url_template", ""), base)
+        if path is None or not path.exists():
+            continue  # check 1 reports it
+        if table in NR_PREAGG.get(level, ()):
+            if has_user_db:
+                fail(rel, name, f"the run names a user or domain input database, and at "
+                     f"{'state' if level == 1 else 'nation'} scale the execution database holds "
+                     f"`{table}` as PreAgg{'STATE' if level == 1 else 'NATION'}.sql's rewrite, which "
+                     f"cannot show what the input database stated: refused")
+                bad += 1
+            continue
+        model = _nr_table(path)
+        try:
+            run = _nr_table(exec_of[table], like=model)
+        except Exception as e:  # a column the source lacks, or text that is not a number
+            fail(rel, name, f"the execution database's `{table}` does not read as the model's source: {e}")
+            bad += 1
+            continue
+        if run.num_rows == model.num_rows and run.equals(model):
+            continue
+        extra = _rows(run) - _rows(model)
+        if table == "nrfuelsupply":
+            # DefaultDataMaker.java:166-172 fills a needed-but-missing fuel type with
+            # its default formulation at share 1; the model makes the same rows itself
+            # (`run_supply_rows`).
+            defaults = set(_nr_table(exec_of["nrfueltype"]).column("defaultformulationid").to_pylist()) \
+                if "nrfueltype" in exec_of else set()
+            cols = run.column_names
+            for row in list(extra):
+                r = dict(zip(cols, row))
+                if r["fuelformulationid"] in defaults and r["marketshare"] == 1.0 and r["marketsharecv"] == 0.0:
+                    del extra[row]
+            # A user nrFuelSupply REPLACES the default (InputDataManager.java:3822-3826):
+            # every default row at the run's fuel region, fuel year and month group
+            # must still be there.
+            mask = None
+            for c, t, c2 in (("fuelregionid", "runspecfuelregion", "fuelRegionID"),
+                             ("fuelyearid", "runspecfuelyear", "fuelYearID"),
+                             ("monthgroupid", "runspecmonthgroup", "monthGroupID")):
+                if t not in exec_of:
+                    continue
+                vals = pq.read_table(exec_of[t]).column(c2).cast(model[c].type)
+                m = pc.is_in(model[c], value_set=vals)
+                mask = m if mask is None else pc.and_(mask, m)
+            if mask is not None:
+                lack = _rows(model.filter(mask)) - _rows(run)
+                if lack:
+                    fail(rel, name, f"{sum(lack.values())} default nrFuelSupply row(s) at the run's keys are not in "
+                         f"its execution database -- a user nrFuelSupply replaced the default, and the model "
+                         f"reads the default: e.g. {next(iter(lack))}")
+                    bad += sum(lack.values())
+        if extra:
+            fail(rel, name, f"the run's execution database holds {sum(extra.values())} `{table}` row(s) the model's "
+                 f"source does not -- an input database stated them (InputDataManager.mergeNonRoad), and the model "
+                 f"would read {path.name} instead: e.g. {next(iter(extra))}")
+            bad += sum(extra.values())
+    # F108: the model reads a formulation's subtype as the default database states
+    # it, MOVES as DefaultDataMaker re-files it. A run whose supply reaches one it
+    # re-files (formulations 2675 and 2676, fuel years 2010-2013, one region) is
+    # refused until the model re-files too.
+    if "nrfuelsupply" in exec_of and "runspecfuelyear" in exec_of:
+        ff = pq.read_table(HERE / "movesdb" / "FuelFormulation.parquet",
+                           columns=["fuelFormulationID", "fuelSubtypeID", "ETOHVolume"]).to_pylist()
+        refiled = {r["fuelFormulationID"] for r in ff
+                   if _ethanol_subtype(r["fuelSubtypeID"], r["ETOHVolume"]) != r["fuelSubtypeID"]}
+        years = set(pq.read_table(exec_of["runspecfuelyear"]).column("fuelYearID").to_pylist())
+        supply = pq.read_table(exec_of["nrfuelsupply"]).to_pylist()
+        hit = sorted({int(r["fuelFormulationID"]) for r in supply
+                      if int(r["fuelFormulationID"]) in refiled and int(r["fuelYearID"]) in years
+                      and float(r["marketShare"] or 0) > 0})
+        if hit:
+            fail(rel, "db_fuelformulation", f"the run's fuel supply reaches formulation(s) {hit}, whose subtype "
+                 f"DefaultDataMaker.java:54-61 re-files by ethanol volume and the model reads as stated (F108)")
+            bad += len(hit)
+    return bad
+
+
+def check_nonroad_output_settings(rel: str, doc: pathlib.Path, d: dict) -> None:
+    """Check 10: a `runspecs/nonroad/` document declares its RunSpec's output
+    settings when they are not the ones the model emits."""
+    if not rel.startswith("runspecs/nonroad/"):
+        return
+    xml = SNAPSHOTS.parent / "fixtures" / (doc.stem + ".xml")
+    if not xml.exists():
+        return
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("nos", HERE / "tools" / "nonroad-output-settings.py")
+    nos = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nos)
+    want = nos.settings(xml)
+    departs = nos.departures(xml)
+    entry = (d.get("data_sources") or {}).get("db_runspecoutputsettings")
+    if entry is None:
+        if departs:
+            fail(rel, "db_runspecoutputsettings",
+                 f"{xml.name} asks for output settings the model does not emit ({', '.join(departs)}), and the "
+                 f"document does not declare them: the model would emit its own shape without a count")
+        return
+    import pyarrow.parquet as pq
+    path = resolve((entry.get("source") or {}).get("url_template", ""), doc.parent)
+    have = pq.read_table(path).to_pylist() if path is not None and path.exists() else []
+    if len(have) != 1 or any(abs(float(have[0].get(c, float("nan"))) - float(v)) > 1e-12 for c, v in want.items()):
+        fail(rel, "db_runspecoutputsettings",
+             f"the document declares {have} and {xml.name} says {want}")
+
+
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
     # catalog used to be a file of its own with no model attached, because
@@ -487,6 +742,8 @@ def main() -> int:
             check_source(rel, doc.parent, name, entry)
         check_rate_of_progress(rel, doc, d)
         check_nonroad_retrofit(rel, doc, d)
+        check_nonroad_inputs(rel, doc, d)
+        check_nonroad_output_settings(rel, doc, d)
 
     for line in notes:
         print(f"  note: {line}")
