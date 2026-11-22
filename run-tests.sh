@@ -2099,7 +2099,8 @@ nr_obs=()
 for f in "${NR_FIELDS[@]}"; do nr_obs+=(--observed "$f"); done
 NR_SHAPE_FIELDS=(--shape-field run_equipmentPointsSelected --shape-field run_equipmentPointsDropped
                  --shape-field run_outputCohortCount --shape-field run_outputPolProcessCount
-                 --shape-field run_extraScopeRows --shape-field run_mixSetsOffOne)
+                 --shape-field run_extraScopeRows --shape-field run_mixSetsOffOne
+                 --shape-field run_retrofitUnported)
 
 if [[ ! -e movesdb ]]; then
   skip "7e default database" "no ./movesdb (run ./build-movesdb.sh)"

@@ -47,6 +47,13 @@ forgetting one column is both easy and silent.
      would be read as strategy-off, silently; this compares it with the fixture
      XML under `../moves.rs/characterization/fixtures/`, where one exists.
 
+  8. a `runspecs/nonroad/` document reads its execution database's NONROAD
+     retrofit programs. The catalogue declares `db_nrretrofitfactors` from the
+     default database, empty; a run whose input database states programs must
+     shadow it with its snapshot's `nrretrofitfactors`, or the model reads the
+     run as un-retrofitted (PLAN.md §7.3.84). This compares the row count the
+     document reads with the snapshot's.
+
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
 """
@@ -409,6 +416,28 @@ def check_rate_of_progress(rel: str, doc: pathlib.Path, d: dict) -> None:
              f"the model would read the run as strategy-{'off' if want else 'on'}")
 
 
+def check_nonroad_retrofit(rel: str, doc: pathlib.Path, d: dict) -> None:
+    if not rel.startswith("runspecs/nonroad/"):
+        return
+    snap = sorted((SNAPSHOTS / doc.stem / "tables").glob("db__movesexecution*__nrretrofitfactors.parquet"))
+    if not snap:
+        return
+    import pyarrow.parquet as pq
+    want = pq.ParquetFile(snap[0]).metadata.num_rows
+    entry = (d.get("data_sources") or {}).get("db_nrretrofitfactors")
+    if entry is None:
+        catalogue = json.loads((HERE / "moves-nonroad.esm").read_text())
+        entry, base = catalogue["data_sources"]["db_nrretrofitfactors"], HERE
+    else:
+        base = doc.parent
+    path = resolve((entry.get("source") or {}).get("url_template", ""), base)
+    have = pq.ParquetFile(path).metadata.num_rows if path is not None and path.exists() else None
+    if have != want:
+        fail(rel, "db_nrretrofitfactors",
+             f"the run's execution database holds {want} nrretrofitfactors row(s) and the "
+             f"document reads {have}: the model would apply the wrong retrofit programs")
+
+
 def main() -> int:
     # Every document that declares `data_sources`, wherever it lives. The
     # catalog used to be a file of its own with no model attached, because
@@ -457,6 +486,7 @@ def main() -> int:
             n += 1
             check_source(rel, doc.parent, name, entry)
         check_rate_of_progress(rel, doc, d)
+        check_nonroad_retrofit(rel, doc, d)
 
     for line in notes:
         print(f"  note: {line}")

@@ -37,12 +37,18 @@ slots past the last owner carry SCC 0, too short and real cohorts are cut.
     run_equipmentPointsDropped == 0
     run_extraScopeRows == 0
     run_mixSetsOffOne == 0
+    run_retrofitUnported == 0
 
 `run_mixSetsOffOne` is not a declared number but a guard the renormalization
 would otherwise hide: NONROAD divides every technology set by its sum
 (`rdtech_moves.f`), so a cohort that had read a second hp bin's set -- or none
 -- would still come out as a mix summing to 1. It counts populated cohorts
 whose LISTED mix misses 1 by more than the Fortran's own 0.002.
+
+`run_retrofitUnported` is a refusal rather than a shape: the nrretrofitfactors
+rows (NONROAD's /RETROFIT/ packet) the model does not apply as MOVES does
+(PLAN.md §7.3.84). A run with one would otherwise emit a wrong inventory
+without a sound.
 
 usage: check-nonroad-shape.py <runspec.esm> <emitted.csv> <shape.csv>
 """
@@ -96,7 +102,8 @@ def main(doc_path, emitted_path, shape_path):
                       (len(distinct_cohorts), int(s["run_outputCohortCount"]), cohorts))
     if int(s["run_equipmentPointsSelected"]) != points:
         errors.append("equipment points: %d recomputed, %d declared" % (int(s["run_equipmentPointsSelected"]), points))
-    for k in ("run_equipmentPointsDropped", "run_extraScopeRows", "run_mixSetsOffOne"):
+    for k in ("run_equipmentPointsDropped", "run_extraScopeRows", "run_mixSetsOffOne",
+              "run_retrofitUnported"):
         if s[k] != 0:
             errors.append("%s = %g, expected 0" % (k, s[k]))
     if errors:

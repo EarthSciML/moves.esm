@@ -213,6 +213,11 @@
       "default": 0,
       "description": "Rows in nrintegratedspecies. Runtime-discovered."
     },
+    "n_nrretrofitfactors": {
+      "type": "integer",
+      "default": 0,
+      "description": "Rows in nrretrofitfactors, the NONROAD retrofit programs. Runtime-discovered. 0 in the default database and in every capture before PLAN.md §7.3.84; a user or county input database states the rows, and mergeNonRoad copies them into the execution database unfiltered."
+    },
     "n_equipmentPoint": {
       "type": "integer",
       "default": 6,
@@ -476,6 +481,10 @@
     "nrintegratedspecies_rows": {
       "kind": "interval",
       "size": "n_nrintegratedspecies"
+    },
+    "nrretrofitfactors_rows": {
+      "kind": "interval",
+      "size": "n_nrretrofitfactors"
     },
     "hp_category_rows": {
       "kind": "interval",
@@ -5733,6 +5742,30 @@
             "run_scope_rows"
           ],
           "description": "How many populated cohorts have a listed technology mix whose sum misses 1 by more than `rdtech_moves.f`'s 0.002 -- the threshold at which NONROAD warns. 0 in every run: a second hp bin's set, or none, would count here."
+        },
+        "nrr_retrofitID": {
+          "type": "parameter",
+          "units": "1",
+          "default": 0.0,
+          "shape": [
+            "nrretrofitfactors_rows"
+          ],
+          "description": "nrretrofitfactors.retrofitID: the retrofit program a row belongs to.",
+          "update": {
+            "kind": "data",
+            "source": "db_nrretrofitfactors",
+            "from": {
+              "file_variable": "retrofitID"
+            }
+          }
+        },
+        "run_retrofitUnported": {
+          "type": "unknown",
+          "units": "1",
+          "shape": [
+            "run_scope_rows"
+          ],
+          "description": "nrretrofitfactors rows the model does not apply, asserted 0 by tools/check-nonroad-shape.py. MOVES writes a non-empty table as NONROAD's /RETROFIT/ packet (NonroadDataFileHelper.generateRetrofitFile) and names it on the .OPT's RETROFIT line, and NONROAD then reduces the exhaust HC, CO and NOx of every matching (SCC, hp, model year, technology) -- so until this is ported a run with retrofit rows would emit the un-retrofitted inventory, silently. Every row counts. The count reads retrofitID through `row_is_present` so that it depends on the file: a source no parameter reads is never sampled and its extent stays 0 (PLAN.md §5)."
         }
       },
       "equations": [
@@ -23144,6 +23177,50 @@
                 1,
                 0
               ]
+            }
+          }
+        },
+        {
+          "lhs": "run_retrofitUnported",
+          "rhs": {
+            "op": "faq",
+            "args": [],
+            "semiring": "sum_product",
+            "output_idx": [
+              "n"
+            ],
+            "ranges": {
+              "n": {
+                "from": "run_scope_rows"
+              },
+              "rr": {
+                "from": "nrretrofitfactors_rows"
+              }
+            },
+            "expr": {
+              "op": "apply_expression_template",
+              "args": [],
+              "name": "row_is_present",
+              "bindings": {
+                "match_count": {
+                  "op": "+",
+                  "args": [
+                    1,
+                    {
+                      "op": "abs",
+                      "args": [
+                        {
+                          "op": "index",
+                          "args": [
+                            "nrr_retrofitID",
+                            "rr"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
             }
           }
         }
