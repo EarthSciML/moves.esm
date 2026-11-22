@@ -520,7 +520,7 @@ and `chain-tog-speciation` were on the ladder as speciation-chain targets, and
 the second of them does **not** exercise `TOGSpeciationCalculator` at all — its
 `integratedSpeciesSet` is empty, and §40.5 says how that was found. Run
 `tools/calculator-coverage.py --ladder` rather than reading this table for what
-to do next; the generators are what is left.
+to do next; the generators are what is left. *[Since ported too: 32 of 32, §7.3.53.]*
 
 ---
 
