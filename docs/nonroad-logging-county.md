@@ -2220,7 +2220,7 @@ quadratic-ish forms in `emsadj.f` are the permeation corrections
 - `MOVESActivityOutput` (144 rows in this snapshot) and the `translate_*` /
   `finalagg*` / `temporary*import` tables are output-pipeline artefacts, not
   inputs, and are out of scope for Phase 2's emission chain.
-- Retrofit (`nrretrofitfactors` is empty; `options.retrofit_enabled` is false)
+- Retrofit (`nrretrofitfactors` is empty; `options.retrofit_enabled` is false). Ported since: PLAN.md §7.3.84
   and the `(1 − retro)` factor at `exhaust.rs:1222-1225`.
 
 ---

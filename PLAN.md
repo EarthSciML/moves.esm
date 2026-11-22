@@ -895,7 +895,7 @@ ignored. The merge (`erba_mergedMeanBaseRate`, the `input_row_or_default` templa
 `userdb-lev`, `scale-county-lev`, `rates-lev` and `userdb-lev-2025`, key-exact, no `cell_exception`.
 Still counted (`run_levUnported`): user rows at other pollutant-processes, at keys the default
 lacks, and in PROJECT domain. Inspection and maintenance, found unported and silent on the way, is
-now counted too (`run_imUnported`, F95). Nonroad retrofit is not ported.
+now counted too (`run_imUnported`, F95). Nonroad retrofit: see below.
 
 **Inspection and maintenance: ported 2026-11-21 (§7.3.83, findings F96-F98).** BaseRateCalculator
 blends meanBaseRateIM into every THC, CO and NOx running and start rate by IMAdjustFract -- the county's
@@ -906,6 +906,17 @@ Both are ported (`rt_imAdjustFract`, `rtMode_imBlendedRate`, the `tvv_*` I/M tra
 programs in SINGLE-county and PROJECT runs, whose IMCoverage is the domain database's, and programs at
 a pollutant-process no capture checks (leaks, which IMFactor does not key, F97). Found on the way: MOVES
 writes RatePerDistance 0 where a row has no SHO (F96, fixed).
+
+**NONROAD retrofit: ported 2026-11-21 (§7.3.84, findings F99-F101).** MOVES writes a non-empty
+`nrRetrofitFactors` as NONROAD's /RETROFIT/ packet, and before this the nonroad model did not read it
+(F99). `rtf_reduction` -- per (cohort, technology, rated pollutant), the printed fraction times the
+retrofit years so far, capped per (retrofit ID, pollutant), times the effectiveness, summed and capped
+-- multiplies the technology's exhaust in `cell_emissionQuant`, so the speciated HC inherits it and
+SO2 and PM do not. Checked by `nr-retrofit-county` against its twin `nr-retrofit-county-base` (the first
+run to select nonroad diesel as fuel 23), key-exact. Still counted (`run_retrofitUnported`): state and
+nation runs, N-unit records, and every table NONROAD fails on -- which empties MOVESOutput; a PM record
+always does (F100) -- (`run_retrofitTableOff`). Phase 6 is complete: every strategy is ported, or refused
+where MOVES 5 cannot run it (Rate-of-Progress).
 
 ---
 
@@ -9294,6 +9305,120 @@ to 75 s / 3.7 GB, `scale-county-evap-species` 185 s / 6.7 GB to 201 s / 7.7 GB (
 second track, the blended array, the I/M delta). The Python binding loads the three new runspecs.
 tools/check-conventions.py, faq-filter-lint.py, check-sources.py and check-reachability-counts.py
 (after `docs/omd-generator-reachability.md` took the three captures) pass.
+
+#### 7.3.84 NONROAD retrofit: a reduction on the technology's exhaust, read from a printed packet, and a packet that fails the whole run (F99-F101)
+
+2026-11-21. Phase 6's last item. Before this section `nonroad/model.esm` did not read `nrretrofitfactors`
+at all, so a run whose input database stated NONROAD retrofit programs emitted the un-retrofitted
+inventory without a sound (F99). The first commit of the lane mounted the table (the catalogue's
+default, empty; conventions §132) and counted every row (`run_retrofitUnported`, asserted 0 by
+`tools/check-nonroad-shape.py` through a new shape field); the port followed.
+
+| run | what | rows | worst cell |
+|---|---|---|---|
+| `nr-retrofit-county` (NEW) | Washtenaw, August 2020 weekday, Industrial NONROAD diesel (fuel 23), 9 pollutants, a user input database with 16 retrofit records | 1,881 of 1,881 | 7.575e-06 |
+| `nr-retrofit-county-base` (NEW) | its un-retrofitted twin | 1,881 of 1,881 | 7.575e-06 |
+
+Both key-exact, no `cell_exception`, the shape recomputed (60 equipment points, 209 cohorts x 9
+pollutants), `run_retrofitUnported` 0. A third capture, `nr-retrofit-county-invalid` (the same plus one
+PM10 record), is the refusal's evidence and is not wired: its MOVESOutput is EMPTY.
+
+**What MOVES does, in order** (MOVES 5.0.1, `/opt/moves` in canonical-moves.sif):
+1. `InputDataManager.mergeNonRoad` copies `nrRetrofitFactors` from every user input database, the domain
+   database and the default (empty) into the execution database WHOLE -- `NonroadTableFilter.csv`
+   names no filter column for it.
+2. `NonroadOptFileSqlHelper.checkRetrofit` is `count(*) = 0`; when the table has a row,
+   `NonroadDataFileHelper.generateRetrofitFile` (:1888) writes the /RETROFIT/ packet, inner-joined to
+   engineTech (`engTechName`) and pollutant (`NEIPollutantCode`), through
+   `%4d %4d %4d %4d %10s %-10s %5.0f%5.0f %18.2f %6.2f %-10s %5d`, and `NonroadOptFileHelper` (:336)
+   names it on the .OPT's RETROFIT line. The fraction and effectiveness are ROUNDED HALF UP to two
+   decimals there (F101).
+3. NONROAD (`intnon.f` -> `rdrtrft.f`) reads it after every other input. Every record is validated
+   (retrofit years 1970-2060 and ordered, model years 1900-2060 and ordered, a known SCC or global code,
+   ALL or a technology with THC deterioration, hp bounds in {0, 9999, hpclev}, minimum below maximum,
+   fraction >= 0, effectiveness 0-1, pollutant HC/CO/NOX/PM, ID > 0) and ONE failure fails `rdrtrft`,
+   `intnon` and the NONROAD run: MOVES then writes no MOVESOutput row at all and logs RUN_ERROR
+   (`nr-retrofit-county-invalid`, measured). Records whose first retrofit year or first model year is
+   after the run year, or whose SCC reaches nothing the run requests, are SKIPPED. The kept records are
+   validated as a set per retrofit ID (`vldrtrftrecs.f`: overlapping records must agree on retrofit
+   and model years, on effectiveness per pollutant, and on summed fraction per pollutant to 0.0049),
+   and fail the run likewise.
+4. Per equipment point, model year and technology (`prccty.f` and its state/nation twins call
+   `fndrtrft.f`'s three filters -- SCC or 4/7-digit global code and hp in (min, max]; the cohort's OWN
+   model year; the technology or ALL), `clcrtrft.f` sums fraction x retrofit-years-so-far
+   (`min(end, year) - start + 1`) per (retrofit ID, pollutant), caps it at 1, multiplies by the
+   effectiveness, sums over IDs and caps at 1; a fraction above 1 is a NUMBER of units, divided by the
+   technology's population, and over 1 it fails the run.
+5. `clcems.f` multiplies the technology's exhaust THC, CO, NOx and PM emission by `1 - rdfrc` after
+   every other factor; the start, crankcase, SO2 and CO2 lines are untouched (SO2 and CO2 read
+   `emsthc`, taken before). MOVES reads the by-model-year-and-technology output
+   (`NonroadOutputDataLoader`, its FracRetro/UnitsRetro columns included) and its HC speciation
+   multiplies the REDUCED THC, so methane, NMHC and VOC inherit THC's reduction.
+
+**Measured before porting** (`/scratch.local/ctessum/nrretrofit/measure.py`: a transcription of
+steps 2-5 applied to the per-technology weights of the twin -- the model's own, which reproduce the
+twin -- against capture / twin): all 1,881 cells within 6.6e-06; the 255 cells that move are exactly
+the 255 predicted (THC, CO, NOx, methane, NMHC and VOC); SO2, PM10 and PM2.5 are the twin's.
+
+**Finding F99: NONROAD retrofit was silently ignored (pre-existing).** Fixed as above.
+
+**Finding F100: MOVES 5 cannot apply a NONROAD PM retrofit, and one PM record empties the run.**
+`generateRetrofitFile` writes the pollutant's NEIPollutantCode -- PM10 is `PM10-PRI`, PM2.5 `PM25-PRI`
+-- and `initrtrft.f` accepts `HC`, `CO`, `NOX` and `PM`, a code no MOVES pollutant has. The record is
+"Not a valid retrofit pollutant", NONROAD stops, and MOVESOutput is empty
+(`nr-retrofit-county-invalid` against `nr-retrofit-county`). The model counts it
+(`run_retrofitTableOff`) rather than emitting an empty table.
+
+**Finding F101: the packet's printf is part of the model.** `%18.2f` and `%6.2f` round half up:
+0.125 is retrofitted as 0.13 and 0.333 removes 0.33. With the unrounded values the predicted ratio
+misses MOVES by 2.2e-03, with half-even rounding by 5.6e-03, with half-up by 6.6e-06. `nrr_fraction`
+and `nrr_effect` read the printed values (`printed_decimal`, the template the .OPT packets already use).
+
+**The port** (`nonroad/model.esm`, `lib/adjustments.esm`): `nrr_*` reads the table;
+`nrr_isInvalid` (`nr_retrofit_row_is_invalid`), `nrr_isKept`, `nrr_isInconsistent` and
+`nrr_fractionsDisagree` (`nr_retrofit_engines_overlap`) transcribe rdrtrft.f and vldrtrftrecs.f;
+`point_retrofitMatch` is filter 1 (`nr_retrofit_scc_matches`, `nr_retrofit_hp_covers`);
+`rtf_fractionRetrofitted` sums a (retrofit ID, pollutant) group's records per (cohort, technology),
+the group named by its first kept record (`nrr_groupOrdinal` joined to `grp_ordinal`);
+`rtf_shareRemoved` sums `retrofit_share_removed` (the On-Road template: fraction x effectiveness) over
+groups at the selection's rated pollutant; `rtf_reduction` caps it; `cell_emissionQuant` multiplies by
+`1 - rtf_reduction` after the technology share. A run with no record has empty retrofit axes, a
+reduction of 0 and a factor of exactly 1.
+
+**Refusals.** `run_retrofitUnported` (asserted 0) now counts: `run_retrofitTableOff` -- records
+rdrtrft.f rejects, kept records vldrtrftrecs.f rejects, every record past MXRTRFT = 500, all of which
+make MOVES write nothing; every record of a state or nation run (`prcsta.f`, `prcnat.f`, `prcus.f`
+apply the same filters, but no capture checks them); and every kept record whose printed fraction is
+above 1 (N units). Probed with four modified tables on `nr-retrofit-county`: one PM record counts 1
+(invalid), a fourth ID-1 record with a different model-year range counts 3 (it and the two it
+contradicts), one with a different fraction counts 3 (fractions disagree), one N-unit record counts 1.
+An SCC of `ALL` is refused at ingest: `float_columns` cannot decode it, and the parquet reader names
+the column and row (not counted, not silent).
+
+**Finding (fixtures): every earlier "diesel" nonroad fixture selected ONROAD diesel.** The MOVES GUI
+offers nrFuelType IDs for an off-road selection; fuel 2 matches no `nrscc` row, so `nr-logging-county`
+ran gasoline only and four fixtures ran the whole inventory (docs/nonroad-logging-county.md §5.4).
+`nr-retrofit-county` selects 23, and the 60-point diesel run -- with diesel methane, NMHC and VOC --
+reproduces first time.
+
+**The captures** (moves.rs branch `capture-nrretrofit`, host token `1ccc0236`, moves-snapshot/v2,
+capture binary rebuilt in the lane's scratch): `nr-retrofit-county` (304 MB apparent),
+`nr-retrofit-county-base` (304 MB), `nr-retrofit-county-invalid` (302 MB).
+
+**Cost.** `nr-retrofit-county` 10.3 s CPU, 0.75 GB peak RSS; its twin 8.9 s, 0.70 GB (0.65 GB before the
+port: the retrofit axes are empty there, and the (cohort, selection, technology) reduction is not).
+The existing nonroad runs, re-emitted with the port: the five whole-inventory runs 61-70 s CPU at
+3.1-3.4 GB, the rest under 12 s.
+
+**Unchanged.** Re-emitted with tools/emit-oracle-table.py and `cmp`'d against the main tree's
+`.fixtures-run/` (written at 07:12 today; no file the nonroad stage reads has changed since but
+`lib/adjustments.esm`, whose additions no nonroad template imports): all twelve existing
+`runspecs/nonroad/` relations byte-identical, every shape scalar the same and `run_retrofitUnported` 0;
+the two nonroad fixtures (`nr-logging-county`, `nr-airtoxics-lawn-garden-county`) pass their inline
+tests and emit byte-identical relations. The twin's relation is byte-identical before and after the
+port. The Python binding loads both new runspecs. tools/check-conventions.py, faq-filter-lint.py,
+check-sources.py (its new check 8: a nonroad RunSpec reads its execution database's retrofit row count)
+and check-reachability-counts.py pass.
 
 ### 7.4 Upstream asks
 

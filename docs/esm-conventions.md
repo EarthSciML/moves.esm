@@ -10148,3 +10148,36 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
 5. **A rate with no activity is written 0.** RatePerDistance at a road type the zone allocates no SHO
    is 0 in MOVES (F96); a Washtenaw-only corpus cannot show it, and the first county with a zero
    allocation did.
+
+## 135. A strategy the reference hands another program as a text packet is read as printed, a per-group cap needs the group as an axis, and a twin needs the selection the reference itself would offer **[PLAN.md §7.3.84; F99-F101; `nr-retrofit-county` and `nr-retrofit-county-base` 1,881 of 1,881 at 7.575e-06, key-exact, no `cell_exception`; every nonroad RunSpec and both nonroad fixtures byte-identical]**
+
+1. **When MOVES writes a table into a FILE for a program it runs, the printf is model.**
+   `generateRetrofitFile` prints fraction and effectiveness `%18.2f` / `%6.2f` (half up) and NONROAD
+   reads those digits, not the table's: read the column through `printed_decimal` at the format's
+   scale. Measure it against the alternatives before porting -- here unrounded 2.2e-03, half-even
+   5.6e-03, half-up 6.6e-06 -- because a 1e-3 rounding error hides under every per-pollutant sum
+   tolerance and fails only the cells.
+2. **A cap applied per group, then a sum over groups, needs the groups as an axis.**
+   clcrtrft.f caps each (retrofit ID, pollutant)'s fraction at 1 before summing over IDs, so the
+   per-record sum cannot be written in one contraction. Name each group by its first member's ordinal
+   (`nrr_isGroupFirst`, `nrr_groupOrdinal`), give a second index set of the same size its own ordinal
+   (`retrofit_group_rows`, `grp_ordinal`), and join on it: the first contraction sums a group's members
+   into the alias axis, the second reads the cap there and the group's attributes off its first member.
+   A self-join over one index set is ambiguous; a pairwise faq over two ranges of it, without a join,
+   is fine where the table is small (the validation checks).
+3. **A nested `faq` inside a joined `faq`'s expression is refused by the native compiler**
+   ("a gated or keyed rank-0 output that reads its enclosing box"). Lift the inner contraction to its
+   own variable (`rtf_shareRemoved`) and apply the scalar function (`min(1, .)`) pointwise after it.
+4. **A reference that fails on one bad record is a table-level refusal, measured with a capture.**
+   One PM record ("PM10-PRI" is not NONROAD's "PM") stops NONROAD and MOVES writes NO row
+   (`nr-retrofit-county-invalid`). The model counts such records (`run_retrofitTableOff`) and the
+   counters are probed with modified tables on the captured run -- invalid, inconsistent within an ID,
+   disagreeing fractions, N units -- each counting exactly the records it should.
+5. **Select what the reference's own interface offers before reading a gap as physics.** Every earlier
+   "diesel" nonroad fixture selected the ONROAD fuel 2, which no `nrscc` row carries; the GUI offers
+   `nrFuelType` 23. A twin captured with the right selection reproduced first time and is what the
+   retrofit's ratio is measured against.
+6. **A new declared source must reach EVERY catalogue that mounts the model.** `esm validate` passed
+   the nonroad fixtures without `db_nrretrofitfactors`; `esm test` and `simulate` refused them (and the
+   execution database's decimal text needed `float_columns`). Run the fixture stage, not only the
+   RunSpec stage, after adding a source.
