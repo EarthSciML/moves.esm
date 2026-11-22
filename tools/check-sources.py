@@ -76,6 +76,28 @@ forgetting one column is both easy and silent.
      whenever they are not the ones the model emits: the breakdown, the
      geographic detail and the mass unit are in the RunSpec XML only, and the
      model counts what it is told (`run_outputSettingUnported`).
+ 11. no table a `runspecs/` document's input databases STATE goes unread. MOVES
+     merges every table of the scale-input and user databases ahead of the
+     default database; a document mounts only what it declares, so a table the
+     run's database states and no document of its mount chain declares would be
+     read from the default silently (PLAN.md §7.3.85). The databases are the
+     SQL `characterization/run-all-fixtures.sh` seeds for the run
+     (`county_sql_for`); every table a script fills with literal rows, or copies
+     from a DIFFERENT default table (the LEV builder's `emissionratebyage` from
+     `emissionratebyagelev`), must be a file some document of the chain reads
+     under `inputs/`, where the model either uses it or counts it. A copy of the
+     default table itself into the same table is the default's own rows and
+     needs nothing. And every non-empty file in an `inputs/` directory the chain
+     reads must itself be declared by the chain.
+
+ 12. a `runspecs/` document's output settings are its RunSpec's. MOVES writes
+     `<outputemissionsbreakdownselection>`, `<outputfactors>`,
+     `<geographicoutputdetail>`, `<geographicselections>`, the activity-output
+     flags and `<genericcounty>` nowhere in the execution database, so the model
+     reads them from `db_runspecoutput` (written by tools/build-scale-input-db.py
+     --runspec-output), and counts what it does not compute (PLAN.md §7.3.85).
+     This compares the declaration the document's mount chain resolves to with
+     the fixture XML, row for row.
 
     tools/check-sources.py             # every .esm that declares data_sources
     SNAPSHOTS=... tools/check-sources.py
@@ -691,6 +713,120 @@ def check_nonroad_output_settings(rel: str, doc: pathlib.Path, d: dict) -> None:
     if len(have) != 1 or any(abs(float(have[0].get(c, float("nan"))) - float(v)) > 1e-12 for c, v in want.items()):
         fail(rel, "db_runspecoutputsettings",
              f"the document declares {have} and {xml.name} says {want}")
+def mount_chain(doc: pathlib.Path) -> list:
+    """[(path, document)] from `doc` down its `models` refs, outermost first: the
+    order in which a data source name is resolved (the mounting document's own
+    declaration wins a name clash, docs/esm-conventions.md §119.4)."""
+    out, todo = [], [doc]
+    while todo:
+        p = todo.pop(0)
+        d = json.loads(p.read_text())
+        out.append((p, d))
+        for m in (d.get("models") or {}).values():
+            if isinstance(m, dict) and m.get("ref"):
+                todo.append((p.parent / m["ref"]).resolve())
+    return out
+
+
+def effective_source(chain: list, name: str):
+    for p, d in chain:
+        entry = (d.get("data_sources") or {}).get(name)
+        if entry is not None:
+            return resolve((entry.get("source") or {}).get("url_template", ""), p.parent)
+    return None
+
+
+def _build_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_scale_input_db", HERE / "tools" / "build-scale-input-db.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_county_sql: dict | None = None
+
+
+def county_sql_for(run: str) -> list:
+    """The SQL run-all-fixtures.sh seeds a run's input databases from."""
+    global _county_sql
+    if _county_sql is None:
+        _county_sql = {}
+        script = SNAPSHOTS.parent / "run-all-fixtures.sh"
+        text = script.read_text() if script.exists() else ""
+        body = text.split("county_sql_for() {", 1)[-1].split("\n}", 1)[0]
+        for names, files in re.findall(r"^\s*([\w|-]+)\)\s*\n\s*echo \"([^\"]*)\"", body, re.M):
+            for nm in names.split("|"):
+                _county_sql[nm] = [f.replace("${HERE}", str(SNAPSHOTS.parent)).replace("$1", nm)
+                                   for f in files.split()]
+    return [pathlib.Path(f) for f in _county_sql.get(run, [])]
+
+
+# A table an input database fills from a DIFFERENT default table, whose rows the
+# model computes identically without reading them: the reason is the entry.
+DERIVED_IDENTITIES = {
+    ("avft", "samplevehiclepopulation"):
+        "AVFTTool_CreateDefaultAVFT's projection of the default sampleVehiclePopulation, "
+        "which AVFTControlStrategy rewrites sampleVehiclePopulation to unchanged (PLAN.md §7.3.78)",
+}
+# Directories under inputs/ that hold catalogue files rather than one database.
+NOT_A_DATABASE = {"default-domain", "runspec-output"}
+
+
+def check_input_databases(rel: str, doc: pathlib.Path, d: dict) -> None:
+    if not rel.startswith("runspecs/") or rel.startswith("runspecs/nonroad/"):
+        return
+    chain = mount_chain(doc)
+    inputs = (HERE / "inputs").resolve()
+    read = set()
+    for p, dd in chain:
+        for entry in (dd.get("data_sources") or {}).values():
+            path = resolve((entry.get("source") or {}).get("url_template", ""), p.parent)
+            if path is not None and inputs in path.parents:
+                read.add(path)
+    stems = {path.stem.lower() for path in read}
+    tool = _build_tool()
+    for sql_path in county_sql_for(doc.stem):
+        if not sql_path.exists():
+            fail(rel, "input databases", f"{sql_path} (run-all-fixtures.sh) does not exist")
+            continue
+        sql = sql_path.read_text()
+        need = {t: len(r) for t, (_, r) in tool.stated_rows(sql).items()
+                if t.lower() not in tool.BOOKKEEPING_TABLES}
+        bare = re.sub(r"--[^\n]*", "", sql)
+        for target, source in re.findall(r"INSERT\s+INTO\s+(?:\w+\.)?(\w+)[^;]*?SELECT[^;]*?FROM\s+\w+\.(\w+)", bare, re.I | re.S):
+            if target.lower() != source.lower() and (target.lower(), source.lower()) not in DERIVED_IDENTITIES:
+                need.setdefault(target, 0)
+        for table, rows in sorted(need.items()):
+            if table.lower() not in stems:
+                fail(rel, "input databases",
+                     f"{sql_path.name} states {rows or 'copied'} row(s) of {table}, and no document of the "
+                     f"run's mount chain reads it: the model would use the default database's silently")
+    for directory in sorted({path.parent for path in read if path.parent.name not in NOT_A_DATABASE}):
+        import pyarrow.parquet as pq
+        for f in sorted(directory.glob("*.parquet")):
+            if f not in read and pq.ParquetFile(f).metadata.num_rows > 0:
+                fail(rel, "input databases",
+                     f"{f.relative_to(HERE)} holds {pq.ParquetFile(f).metadata.num_rows} row(s) and no document "
+                     f"of the run's mount chain reads it")
+
+
+def check_runspec_output(rel: str, doc: pathlib.Path, d: dict) -> None:
+    xml = SNAPSHOTS.parent / "fixtures" / (doc.stem + ".xml")
+    if not rel.startswith("runspecs/") or rel.startswith("runspecs/nonroad/") or not xml.exists():
+        return
+    want = _build_tool().runspec_output_options(xml)
+    path = effective_source(mount_chain(doc), "db_runspecoutput")
+    if path is None or not path.exists():
+        fail(rel, "db_runspecoutput", "no document of the run's mount chain declares the RunSpec's output settings")
+        return
+    import pyarrow.parquet as pq
+    have = pq.read_table(path).column("option").to_pylist()
+    if have != want:
+        diff = sorted(set(want) ^ set(have))
+        fail(rel, "db_runspecoutput",
+             f"{path.relative_to(HERE)} is not {xml.name}'s output settings ({', '.join(diff[:4]) or 'order'}): "
+             f"the model would count the wrong ones")
 
 
 def main() -> int:
@@ -744,6 +880,8 @@ def main() -> int:
         check_nonroad_retrofit(rel, doc, d)
         check_nonroad_inputs(rel, doc, d)
         check_nonroad_output_settings(rel, doc, d)
+        check_input_databases(rel, doc, d)
+        check_runspec_output(rel, doc, d)
 
     for line in notes:
         print(f"  note: {line}")

@@ -1904,7 +1904,8 @@ else
   for f in rateSurvivorCount outputPolProcessCount cohortSurvivorCount \
            run_sourceBinsDropped run_physicsRowsDropped run_rateRowsWithoutPhysics \
            run_chainDepthExceeded run_domainUnported \
-           run_selectionUnported run_tankGroupsDropped; do
+           run_selectionUnported run_tankGroupsDropped \
+           run_activityOutputUnported; do
     RS_SHAPE_FIELDS+=(--shape-field "$f")
   done
   for rs in "${RUNSPECS[@]}"; do

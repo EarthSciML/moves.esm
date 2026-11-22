@@ -42,6 +42,10 @@ asserts the four counts the chain keeps of what it could not reach:
     run_selectionUnported == 0
     run_tankGroupsDropped == 0
 
+and REPORTS, without failing, `run_activityOutputUnported` when the RunSpec
+turns an activity-output flag on: MOVESActivityOutput is not emitted, and
+MOVESOutput, which is what is checked, is unaffected (PLAN.md §7.3.85).
+
 The last four lines are a different KIND of check from the four above them.
 The first two declared numbers are extents: too small and the document emits
 fewer rows than it computes, which the row count catches. The other two are
@@ -191,6 +195,10 @@ def main(emitted_path, shape_path, rpd_path=None):
     # PLAN 7.3.51: the cold-soak chain's group slot. Read with a default so a
     # shape file from before the slot still checks.
     groupless = int(float(shape[0].get("run_tankGroupsDropped", 0) or 0))
+    # PLAN 7.3.85: activity-output flags the RunSpec turns on. MOVESActivityOutput
+    # is not emitted, but MOVESOutput is unaffected, so this is REPORTED, not
+    # failed. Read with a default so a shape file without the field still checks.
+    activity = int(float(shape[0].get("run_activityOutputUnported", 0) or 0))
 
     pre = "out_"
 
@@ -281,8 +289,10 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "links on one road type at Rates scale; outside it a "
                         "linkSourceTypeHour row; in any domain an undeclared "
                         "extra link or grade, a ZoneRoadType or Zone row the "
-                        "default lacks, or hotelling adjustments over a third "
-                        "calendar year" % unported)
+                        "default lacks, hotelling adjustments over a third "
+                        "calendar year, or a County or Project Data Manager "
+                        "table row the model reads from the default instead "
+                        "(run_domainTablesUnread)" % unported)
     if unselected:
         problems.append("%d thing(s) this run SELECTS that the model does not "
                         "compute (run_selectionUnported): an on-road "
@@ -299,7 +309,11 @@ def main(emitted_path, shape_path, rpd_path=None):
                         "itself fails to run (run_ropUnported); or a user "
                         "input database's emissionRateByAge (the LEV/NLEV "
                         "tools' table) outside what the LEV capture checks "
-                        "(run_levUnported)"
+                        "(run_levUnported); an I/M program the model does not "
+                        "blend (run_imUnported); or an output breakdown, unit, "
+                        "geographic output detail, generic county or NATION/"
+                        "STATE selection the model does not compute "
+                        "(run_outputOptionsUnported, run_geoSelectionUnported)"
                         % unselected)
     if problems:
         for p in problems:
@@ -318,6 +332,9 @@ def main(emitted_path, shape_path, rpd_path=None):
              else "a rectangle",
              "" if not rpd else "; every RatePerDistance row on the project link" if project
              else "; every RatePerDistance row on its road type's and bin's link"))
+    if activity:
+        print("known-unported output: %d activity-output flag(s) on, and MOVESActivityOutput "
+              "is not emitted (run_activityOutputUnported); MOVESOutput is unaffected" % activity)
     return 0
 
 
