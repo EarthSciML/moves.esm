@@ -38,6 +38,8 @@ slots past the last owner carry SCC 0, too short and real cohorts are cut.
     run_extraScopeRows == 0
     run_mixSetsOffOne == 0
     run_retrofitUnported == 0
+    run_polProcessUnported == 0
+    run_outputSettingUnported == 0
 
 `run_mixSetsOffOne` is not a declared number but a guard the renormalization
 would otherwise hide: NONROAD divides every technology set by its sum
@@ -49,6 +51,14 @@ whose LISTED mix misses 1 by more than the Fortran's own 0.002.
 rows (NONROAD's /RETROFIT/ packet) the model does not apply as MOVES does
 (PLAN.md §7.3.84). A run with one would otherwise emit a wrong inventory
 without a sound.
+
+`run_polProcessUnported` and `run_outputSettingUnported` are refusals too
+(PLAN.md §7.3.86): selected pollutant-processes MOVES writes for NONROAD and
+the model does not compute (crankcase, the evaporative and refueling
+processes, CO2 and NH3 at running exhaust), and output settings -- breakdown,
+geographic detail, mass unit -- the model does not emit.
+`run_activityOutputRows` is REPORTED, not asserted: MOVES writes a
+MOVESActivityOutput for every NONROAD run, and the model emits none.
 
 usage: check-nonroad-shape.py <runspec.esm> <emitted.csv> <shape.csv>
 """
@@ -103,12 +113,13 @@ def main(doc_path, emitted_path, shape_path):
     if int(s["run_equipmentPointsSelected"]) != points:
         errors.append("equipment points: %d recomputed, %d declared" % (int(s["run_equipmentPointsSelected"]), points))
     for k in ("run_equipmentPointsDropped", "run_extraScopeRows", "run_mixSetsOffOne",
-              "run_retrofitUnported"):
+              "run_retrofitUnported", "run_polProcessUnported", "run_outputSettingUnported"):
         if s[k] != 0:
             errors.append("%s = %g, expected 0" % (k, s[k]))
     if errors:
         sys.exit("; ".join(errors))
-    print("%d points, %d cohorts x %d pollutants = %d rows, all recomputed" % (points, cohorts, len(pollutants), len(rows)))
+    print("%d points, %d cohorts x %d pollutants = %d rows, all recomputed; MOVESActivityOutput rows not "
+          "emitted (reported): %d" % (points, cohorts, len(pollutants), len(rows), int(s["run_activityOutputRows"])))
 
 
 if __name__ == "__main__":
