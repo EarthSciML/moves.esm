@@ -58,15 +58,15 @@ they say.
 | `components/` | One `.esm` per calculator. Tables stay tables; joins are `join.on`; literals come from `enums`. |
 | `runs/` | Run-level assemblies that mount components. |
 | `fixtures/` | The documents that read the snapshot Parquet and are compared against its `MOVESOutput`. One per snapshot; each declares the tables it reads as `data_sources`. |
-| `onroad/model.esm` | The onroad DOMAIN MODEL (PLAN.md §7.3.3, §7.5 step 7d): one model, 425 variables and 259 equations, declaring the metaparameters and index sets that size it and no `data_sources` at all. It is what both catalogues mount, and it does not validate alone. |
-| `moves-onroad.esm` | The onroad domain CATALOGUE: the 40 default-database tables the model reads, mounting it. It declares no runspec and so does not validate alone either — the per-fixture document that mounts it supplies one. Its `./movesdb/` is an untracked symlink to the monolithic conversion, gitignored beside `./esm`. |
-| `runspecs/` | One thin document per RunSpec, mounting `moves-onroad.esm` and carrying only that run's selections and its oracle. These DO validate alone — that is the point of the split. `runspecs/pending/` holds RunSpecs that are written and validate but whose model work is measured and not finished; the suite checks that each still loads and still says what it waits on, and does not ask it for numbers it cannot give. `runspecs/selections/` holds the one selection no snapshot states: a RunSpec that sets `aggregateBy` has its `RunSpecDay` overwritten by MOVES with the synthesized output day, after the pre-aggregation the day was scoped to has already run (docs/esm-conventions.md §66.4, moves.rs#69). |
+| `onroad/model.esm` | The onroad DOMAIN MODEL (PLAN.md §7.3.3, §7.5 step 7d): one model, 2,291 variables and 1,682 equations on 2026-11-21, declaring the metaparameters and index sets that size it and no `data_sources` at all. It is what both catalogues mount, and it does not validate alone. |
+| `moves-onroad.esm` | The onroad DEFAULT-domain CATALOGUE: since step 7f (PLAN.md §7.3.40) `onroad/default-database.esm` holds the default-database tables the model reads and mounts it, and `moves-onroad.esm` mounts that with the tables MOVES merges by domain. A run on a county, project or user input database mounts that database's domain document in `inputs/` instead. It declares no runspec and so does not validate alone either — the per-fixture document that mounts it supplies one. Its `./movesdb/` is an untracked symlink to the monolithic conversion, gitignored beside `./esm`. |
+| `runspecs/` | One thin document per RunSpec, mounting `moves-onroad.esm` (or a domain document in `inputs/`) and carrying only that run's selections and its oracle. These DO validate alone — that is the point of the split. `runspecs/pending/` holds RunSpecs that are written and validate but whose model work is measured and not finished; the suite checks that each still loads and still says what it waits on, and does not ask it for numbers it cannot give. `runspecs/selections/` holds the one selection no snapshot states: a RunSpec that sets `aggregateBy` has its `RunSpecDay` overwritten by MOVES with the synthesized output day, after the pre-aggregation the day was scoped to has already run (docs/esm-conventions.md §66.4, moves.rs#69). |
 | `nonroad/model.esm` | The NONROAD DOMAIN MODEL (PLAN.md §7.3.34, §7.5 step 7e): `fixtures/nr-logging-county.esm`'s model lifted into a data-open document, with the equipment points, the run's scope, the technology axis and the output width READ rather than declared. Evaluated in binary32 -- which each RunSpec has to declare again, because a mounted leaf's `domain` is ignored (docs/findings F60). |
-| `moves-nonroad.esm` | The nonroad CATALOGUE: the 33 default-database tables the model reads, nine of them the speciation and air-toxics tables, mounting it. Data-open, like `moves-onroad.esm`. |
+| `moves-nonroad.esm` | The nonroad CATALOGUE: the 34 default-database tables the model reads, nine of them the speciation and air-toxics tables, mounting it. Data-open, like `moves-onroad.esm`. |
 | `runspecs/nonroad/` | One document per NONROAD RunSpec, mounting `moves-nonroad.esm`; its own suite stage (7e), because the two domains share no output shape. `tools/check-nonroad-shape.py` holds each to the equipment points and cohorts the chain recomputes. |
 | `spikes/` | Phase 7's shape experiments, excluded from the document stages because several are deliberately data-open. `7c/` holds the snapshot catalogue over `onroad/model.esm` and the 12-line per-fixture document that mounts it. |
 | `gates/` | Performance gates, currently the `join.on` scaling assertion. |
-| `docs/` | The two port specifications, the conventions doc, and the findings. |
+| `docs/` | The port specifications (one per fixture, generator or run family), the conventions doc, and the findings. |
 | `tools/` | `check-conventions.py`, which enforces mechanically what a review would otherwise have to eyeball; `check-sources.py`, which opens every declared Parquet file and checks the columns; `shortfall.py`, which judges a fixture's failure against what `tolerance.toml` says to expect; `cross-check-chain.py`, which compares the mounted assembly's rows against the fixture's in ulps; `check-runspec-shape.py`, which holds a `runspecs/` document's emitted row count to the shape the chain recomputes; `runspec-day-selection.py`, which reads a RunSpec XML's day selection into the parquet §66.4 explains; and the probe generators, which write the transient documents that must FAIL. |
 
 ## Testing
@@ -329,6 +329,15 @@ it does.
 
 ## Status
 
+**Status 2026-11-21.** Phases 0–6 of `PLAN.md` are done: 32 of 32 live MOVES modules
+are ported (PLAN.md §7.3.53), and the control strategies are ported or, for
+Rate-of-Progress, which MOVES 5 itself cannot run, refused (PLAN.md Phase 6). Phase 7, the
+front half of the pipeline, is far along: 115 onroad RunSpecs in `runspecs/` and 14 NONROAD
+ones in `runspecs/nonroad/` compute `MOVESOutput` from the default database (plus any input
+database the run names) and match their MOVES captures cell by cell; `runspecs/pending/`
+holds one measured, held-back run. PLAN.md §7.5 has each step's status. What follows is the
+record of the early phases, kept as written.
+
 **Phases 0–3 are complete, and Phase 4 has two slices — both wired, and both
 complete.** Twenty components cover all seven NONROAD stages of
 `nr-logging-county`, S1–S12 and S15–S18 of `mixed-onroad`, and all of
@@ -561,5 +570,5 @@ the vapour floor that binds — are checked in
 `components/refueling_loss_rate.esm` instead.
 
 See `PLAN.md` for the plan of record and `docs/findings/README.md` for what the
-toolchain still cannot do — thirteen open findings, and twelve retired
-because they were fixed.
+toolchain still cannot do; its opening paragraph keeps the count of open and
+retired findings.

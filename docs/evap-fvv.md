@@ -1777,7 +1777,9 @@ road type 4.
 So the next slice that would answer the recurrence question is one whose RunSpec
 selects road type 1, not one that picks a different evaporative process. That is
 a snapshot that does not currently exist in
-`../moves.rs/characterization/snapshots`, and generating it is upstream work.
+`../moves.rs/characterization/snapshots`, and generating it is upstream work. *[Since
+generated: `rates-venting` reaches the cold soak on road types 1 and 4 (PLAN.md §7.3.49),
+and `project-offnetwork` on an off-network link (§7.3.56).]*
 
 ### 8.4 Things deliberately not modelled
 

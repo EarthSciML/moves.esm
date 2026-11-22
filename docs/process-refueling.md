@@ -1105,7 +1105,9 @@ count, and the energy spine's two exact zeros.
 * **No off-network road type is selected anywhere in the 39 fixtures**, so
   §2.2's two mechanisms cannot be told apart by any snapshot in this repository.
   The same gap blocks the evaporative soak chain (`docs/evap-fvv.md` §8.3) and
-  needs a RunSpec generated in `moves.rs`, not another slice here.
+  needs a RunSpec generated in `moves.rs`, not another slice here. *[Since generated:
+  road-type-1 runs from PLAN.md §7.3.41 on, and the soak chain is checked off-network in
+  §7.3.49 and §7.3.56.]*
 * **`controlledRefuelingRate` takes one value, 0.0361**, on every row where it
   is weighted at all, so the fixture cannot distinguish it from a constant. The
   component probes it at 0.5.

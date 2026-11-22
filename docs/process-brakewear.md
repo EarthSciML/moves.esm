@@ -922,7 +922,8 @@ against a rate table five orders of magnitude smaller, still reproduce
   low without it.
 * **Mode 501 is never exercised as a live weight.** §3.2 shows it cannot be at
   Inventory scale and that its rate is zero anyway. A project-scale snapshot
-  would be needed to exercise the fold, and none of the 39 fixtures is one.
+  would be needed to exercise the fold, and none of the 39 fixtures is one. *[Since
+  captured: PLAN.md §7.3.55 measures mode 501 on PROJECT links.]*
 * **Tire wear is not covered.** `process-tirewear` is the same chain with
   polProcessID 11710 → 10710 and, from `operatingmode`, a completely different
   operating-mode family (400–416, binned on speed alone). Whether the drive-cycle
