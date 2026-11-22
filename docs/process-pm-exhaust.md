@@ -1578,7 +1578,9 @@ crankcase ratios of 112, 115, 119 and 120 are exactly 1 wherever this corpus can
 see them. `SulfatePMCalculator` registers on processes 2, 15, 16, 17, 90 and 91
 as well, so this is a gap in the RunSpec corpus rather than in the port, and it
 is the same shape as `docs/nonroad-logging-county.md`'s missing off-network
-snapshot: it needs a RunSpec generated in `moves.rs`.
+snapshot: it needs a RunSpec generated in `moves.rs`. *[Since generated: the PM species at
+the crankcase processes are checked by `scale-county-minor-running` and
+`scale-county-minor-offnet`, PLAN.md §7.3.74.]*
 
 **3. The water arm of the split is dead in its coefficient and live in its
 form.** `H2OnonECPMFraction` is 0 on all six `sulfatefractions` rows, so
@@ -1673,13 +1675,16 @@ which is what `adjust.rs` and `sulfate_pm_calculator.rs` both do.
    species either.** `process-crankcase-running` exercises the same table on
    pollutants 1, 2 and 3 under different polProcessIDs; measured across all 31
    snapshots with a non-empty `MOVESOutput`, not one emits a PM pollutant on any
-   process other than 1. It needs a RunSpec generated in `moves.rs`.
+   process other than 1. It needs a RunSpec generated in `moves.rs`. *[Since: PLAN.md
+   §7.3.74 checks the PM species at every crankcase process.]*
 3. **`FuelEffectsGenerator` is not ported.** `generalfuelratio` ships captured
    in the snapshot, computed from `generalfuelratioexpression`'s 58 equation
    strings and the fuel formulations' properties. Turning those strings into
    ratios is a separate rung, it is `docs/esm-conventions.md`'s "data that is
    code" case, and it is **not** claimed in §0's calculator path.
-   `generalfuelratioexpression` has 58 rows here and is not read.
+   `generalfuelratioexpression` has 58 rows here and is not read. *[Since ported:
+   `docs/fuel-effects-generator.md`; `runspecs/process-pm-exhaust.esm` computes the ratios
+   from the default database, PLAN.md §7.3.24.]*
 4. **The `regClassID` reconciliation in the crankcase join is asserted, not
    derived.** `../moves.rs` treats a collapsed `regClassID` of 0 as a wildcard
    because `baseRateOutput` emits 0 whenever the RunSpec does not break down by
@@ -1690,7 +1695,7 @@ which is what `adjust.rs` and `sulfate_pm_calculator.rs` both do.
    calculator's 133 registrations cover seven processes; this RunSpec selects
    one. The `primaryAndCrankcaseProcessIDs` filter, the second `spmOutput2`
    process, and the `MakePM2.5Total` section's multi-process list are all
-   single-valued here.
+   single-valued here. *[Since reached: PLAN.md §7.3.74, every exhaust process.]*
 6. **`process-airtoxics`' three-level chain-root iteration is not reused and
    not refuted** (§2.8). It presumes a chain declaration that is a computation
    graph; this snapshot's is cyclic. §33.1 records that precondition, which

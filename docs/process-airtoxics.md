@@ -1275,7 +1275,9 @@ would otherwise look like evidence for them. `docs/esm-conventions.md` §23.
   93 strings *and* the Complex + sulfur model, and the calculator path in §0 does
   not claim it. The snapshot's `tempairtoxicsa` / `tempairtoxicsavoc` /
   `tempairtoxicsanonvoc` are that generator's scratch and are named here only so
-  a reader does not mistake them for `AirToxicsCalculator`'s.
+  a reader does not mistake them for `AirToxicsCalculator`'s. *[Since ported where a
+  RunSpec reaches it: `docs/fuel-effects-generator.md`, and `runspecs/process-airtoxics.esm`
+  computes `ATRatio` from the default database, PLAN.md §7.3.21-§7.3.23.]*
 * **One process, one source type, one road type.** `HCSpeciationCalculator`
   registers 40 pairs across nine processes and `AirToxicsCalculator` 195; this
   fixture exercises five of them, all on running exhaust.
@@ -1374,7 +1376,7 @@ against this document's 7.564e-06 on the snapshot path.
 **And what the three toxics here could not show, the next three did.** This run
 selects benzene, 1,3-butadiene and formaldehyde, and on 2026-09-21 the same
 relations were widened for ethanol, acetaldehyde and acrolein
-(`runspecs/pending/chain-so2-co2e-mechanism.esm`, PLAN.md §7.3.23). Two of the
+(`runspecs/pending/chain-so2-co2e-mechanism.esm`, PLAN.md §7.3.23; since reproduced, §7.3.25). Two of the
 four claims above are true of *these* three toxics and not of air toxics in
 general:
 

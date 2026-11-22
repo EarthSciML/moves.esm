@@ -145,12 +145,12 @@ for **57 of the 72 skeletons**, and form C is one form.
 
 | # | form | rows | strings | where | ported |
 |---|---|---:|---:|---|---|
-| A | `exp(Σ aⱼ·((xⱼ−mⱼ)/sⱼ))/base` | 32 | 2 | `process-pm-exhaust` only | **yes** — `log_linear_ratio`, and since 2026-09-22 faced with MOVES from the default database too: it is EC's base-rate fuel ratio, 1.090910749585, and `runspecs/pending/process-pm-exhaust.esm` has every EC cell right |
+| A | `exp(Σ aⱼ·((xⱼ−mⱼ)/sⱼ))/base` | 32 | 2 | `process-pm-exhaust` only | **yes** — `log_linear_ratio`, and since 2026-09-22 faced with MOVES from the default database too: it is EC's base-rate fuel ratio, 1.090910749585, and `runspecs/pending/process-pm-exhaust.esm` has every EC cell right (since reproduced whole, out of `pending/`: `runspecs/process-pm-exhaust.esm`, PLAN.md §7.3.24) |
 | B | `1 + (least(bioDieselEsterVolume, 20)/100)·c` | 676 | 4 | 21 snapshots | **yes** — `biodiesel_ester_ratio` |
 | C | `if(sulfurLevel > 30, HIGH, LOW)` | 974 | 99 | 15 snapshots | **yes** — `sulfur_switch_ratio` |
-| D | `((c₂·O² + c₁·O + c₀)/base)·scale` | 61 | 2 | 4 snapshots | no (§8.1) |
-| E | `((benzeneContent − c)·k + 1)·scale` | 61 | 2 | 4 snapshots | no (§8.1) |
-| F | `exp(A)/(exp(B) − exp(C))` | 151 | 6 | 4 snapshots | no (§8.1) |
+| D | `((c₂·O² + c₁·O + c₀)/base)·scale` | 61 | 2 | 4 snapshots | **yes** — since 2026-09-21, `quadratic_property_ratio` (§8.1) |
+| E | `((benzeneContent − c)·k + 1)·scale` | 61 | 2 | 4 snapshots | **yes** — since 2026-09-21, `centered_linear_ratio` (§8.1) |
+| F | `exp(A)/(exp(B) − exp(C))` | 151 | 6 | 4 snapshots | **yes** — since 2026-09-21, `air_toxics_exponent` (§8.1) |
 | G | a bare numeric literal | 84 | 2 | 3 snapshots | **yes** — it is E with a zero slope, and needs no template of its own |
 | H | `IF(x<c₁, v₀, IF(x<c₂, v₁, IF(x<c₃, v₂, v₃)))` | 39 | 1 | 3 snapshots | **yes** — `stepwise_property_ratio` |
 
@@ -180,6 +180,7 @@ Form G is a constant ratio at polProcessID 2701. Its 84 corpus rows all sit in
 snapshots where it is either never computed (NONROAD, §0.1) or handed off
 (§8.1), so *those* rows have no reachable answer — but the same string reaches
 `ATRatio` from the default database, where `runspecs/pending/chain-so2-co2e-mechanism.esm`
+(since reproduced, `runspecs/chain-so2-co2e-mechanism.esm`, PLAN.md §7.3.25)
 computes it and compares it, as form E with a zero slope. Form H is ethanol's
 model-year-2000-and-earlier ratio and is reached the same way; it is the one
 form in this table whose port was driven by a RunSpec rather than by the census.
@@ -1035,7 +1036,7 @@ What follows for the port:
   result to the run's own `MOVESOutput`: **309 of 372 cells at a worst
   7.804e-06**, and against the snapshot's captured `criteriaRatio` directly,
   **2,013 rows at a worst 4.4e-08** — which is §7.2's binary32 question and not
-  a modelling residual. The paragraph below is what was true before that, and is
+  a modelling residual. *[Since 372 of 372, out of `pending/`: PLAN.md §7.3.15.]* The paragraph below is what was true before that, and is
   kept because it is still what THIS oracle and `components/fuel_effects.esm`
   can say on their own. 974 of
   the corpus's 2,078 expression rows, 99 of its 118 strings — the dominant
@@ -1066,7 +1067,8 @@ What follows for the port:
   through `ATRatio`, in the same place.** They are acrolein's bare constant and
   ethanol's step, 123 rows and 3 strings between them, and they are the two this
   document had written off: G as "no reachable answer to reproduce" and H as
-  part of form C. `runspecs/pending/chain-so2-co2e-mechanism.esm` reaches both,
+  part of form C. `runspecs/pending/chain-so2-co2e-mechanism.esm` (since reproduced
+  whole, PLAN.md §7.3.25) reaches both,
   because `ATRatio` in the **default database is empty** and a document that
   computes it has to produce every row MOVES would have written, not only the
   rows a snapshot kept. G needed no template — it is E with a zero slope — and H
@@ -1119,7 +1121,9 @@ them. The predictive/complex-model paths — `doAirToxicsCalculations`,
 `doMTBECalculations` and their siblings — need the MOVES complex-model
 expression engine and a dozen further default-database tables, and they write
 `ATRatio`, `criteriaRatio`, `altCriteriaRatio` and `MTBERatio`. None of that is
-here. `../moves.rs`'s port draws the same line and for the same reason.
+here. *[In this specification's port. `onroad/model.esm` has since ported the paths a
+RunSpec reaches: the Complex Model behind `criteriaRatio` (PLAN.md §7.3.14-§7.3.15) and
+`ATRatio` (§7.3.21-§7.3.23).]* `../moves.rs`'s port draws the same line and for the same reason.
 
 Two `static` string helpers are ported in `../moves.rs` (`getCSV`,
 `getPolProcessIDsNotAlreadyDone`) and one is not needed here at all

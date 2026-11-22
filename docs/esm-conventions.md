@@ -5978,7 +5978,8 @@ survivors are not a prefix of its selections would move the numbers as well —
 `expand-criteria` selects 101, 102, 201, 202, 301, 302, 3101 and 3102 and emits
 pollutants 1, 2 and 3 on process 1, which is positions 1, 3 and 5 of eight. It
 is not ported, and until it is, this section is the record that the prefix
-renumbering is exercised by construction and not by a fixture.
+renumbering is exercised by construction and not by a fixture. *[Since ported:
+`runspecs/expand-criteria.esm` reproduces, §69, PLAN.md §7.3.15.]*
 
 ### 60.3 A second RunSpec costs eleven `url_template`s and one binding
 
@@ -6091,7 +6092,7 @@ six-significant-figure column storage lands further from the computed value.
 tolerance has not been widened.
 
 
-## 62. The source type is inside the cohort, and the cohort is not the source bin **[PLAN.md step 7d; 44 variables promoted, 125 of 248 rows exact, one root cause for the rest]**
+## 62. The source type is inside the cohort, and the cohort is not the source bin **[PLAN.md step 7d; 44 variables promoted, 125 of 248 rows exact, one root cause for the rest]** **[since 248 of 248, §64]**
 
 Three of 7d's dimensions have now been widened, and all three found the same
 kind of thing: a selection of width one had been hiding a structure. §60 was the
@@ -6207,7 +6208,7 @@ greater than one — so the exemption disappears by itself when the key becomes
 expressible. That is the shape an exemption should have: it names the reason,
 and it expires when the reason does.
 
-## 63. A cohort is what the answer has a row for; a source bin is what the rate table has a rate for **[PLAN.md step 7d; 330 bins exact, 3 of 4 factors right, one key left]**
+## 63. A cohort is what the answer has a row for; a source bin is what the rate table has a rate for **[PLAN.md step 7d; 330 bins exact, 3 of 4 factors right, one key left]** **[since resolved, §64]**
 
 §62 ended by saying the cohort had to become the MOVES source bin. It did not,
 and the reason is worth more than the fix: they are **two relations**, and
@@ -6794,9 +6795,10 @@ database**: MOVES's `FuelEffectsGenerator` computes all 4,398 rows at run time,
 from the EPA Complex Model for MY ≤ 2000 gasoline and from
 `generalFuelRatioExpression` for the rest. That is the one thing
 `runspecs/pending/expand-criteria.esm` waits on, and the pending document says so
-in those terms rather than as a list of suspicions.
+in those terms rather than as a list of suspicions. *[Since ported, §68-§69, PLAN.md
+§7.3.14-§7.3.15.]*
 
-## 68. An equation carried as a string is a form and a table of coefficients, and the split is a measurement **[PLAN.md step 7d; `expand-criteria` 309 of 372 cells at 7.804e-06, six runs unchanged to the digit]**
+## 68. An equation carried as a string is a form and a table of coefficients, and the split is a measurement **[PLAN.md step 7d; `expand-criteria` 309 of 372 cells at 7.804e-06, six runs unchanged to the digit]** **[since 372 of 372, §69]**
 
 §24 says what to do with a MOVES table whose column holds arithmetic: the FORM
 becomes an expression template, spelled once, and the COEFFICIENTS stay data.
@@ -8425,7 +8427,7 @@ concluding that a process emits nothing, check that every calculator upstream of
 has a selected pollutant-process to run on (§81 is the converse: a prerequisite the
 execution database carries that the RunSpec did not ask for).
 
-## 96. An index is not an identifier, an out-of-range index selects nothing, and a road type is a location **[PLAN.md step 7d; `expand-fullyear` 1375 of 1375 at 1.056e-05 and `expand-counties-large` 875 of 875 at 1.140e-05, no model change; `expand-roadtypes` pending]**
+## 96. An index is not an identifier, an out-of-range index selects nothing, and a road type is a location **[PLAN.md step 7d; `expand-fullyear` 1375 of 1375 at 1.056e-05 and `expand-counties-large` 875 of 875 at 1.140e-05, no model change; `expand-roadtypes` pending]** **[since reproduced, §101]**
 
 §81 and §16.5 say a RunSpec XML's `<month key>` is a 0-based index into the sorted
 `MonthOfAnyYear` IDs, so a document reads the execution database's `runspecmonth` and
@@ -8507,7 +8509,7 @@ A check that counts DISTINCT output keys has to count by the new axis too: 241
 cohorts are 135 (source type, fuel, model year) triples, and
 `tools/check-runspec-shape.py`'s cohort key gained `out_yearID`.
 
-## 100. A county database of the default's own rows is a differential test, and a RunSpec can select more than it names **[PLAN.md step 7f; `scale-county` pending, its oracle equal to `expand-roadtypes`' on all 729 rows]**
+## 100. A county database of the default's own rows is a differential test, and a RunSpec can select more than it names **[PLAN.md step 7f; `scale-county` pending, its oracle equal to `expand-roadtypes`' on all 729 rows]** **[since 729 of 729, §102]**
 
 **Build a county database from the default's rows, and the SINGLE run becomes the
 DEFAULT run's twin.** §95 made the twin from the RunSpec side, the same selections at
@@ -9988,7 +9990,7 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    the branch only within 3e-8 of the 1e-6 threshold and is not reproduced (an AST
    `cast` op was declined, #674).
 
-## 130. A control strategy that UPDATEs the worker's output multiplies the finished row by its own key, and a strategy that switches itself off is a refusal **[PLAN.md §7.3.79; `scale-county-retrofit` 17,358 of 17,358 and `userdb-retrofit-multiyear` 3,552 of 3,552, key-exact, no `cell_exception`; `rates-retrofit` pending on a pre-existing multi-bin RatePerDistance gap (F91); every run whose output stage holds `rtDay_quant` or `rtRate_total` byte-identical]**
+## 130. A control strategy that UPDATEs the worker's output multiplies the finished row by its own key, and a strategy that switches itself off is a refusal **[PLAN.md §7.3.79; `scale-county-retrofit` 17,358 of 17,358 and `userdb-retrofit-multiyear` 3,552 of 3,552, key-exact, no `cell_exception`; `rates-retrofit` pending on a pre-existing multi-bin RatePerDistance gap (F91; since fixed, §131); every run whose output stage holds `rtDay_quant` or `rtRate_total` byte-identical]**
 
 1. **Find WHERE the strategy's SQL runs before deciding what it multiplies.** On-Road
    Retrofit's `update MOVESWorkerOutput ... where pollutantID=...` is registered through
