@@ -10183,3 +10183,30 @@ the rewritten table. Four rules came out of porting it (`lib/avft.esm`).
    the nonroad fixtures without `db_nrretrofitfactors`; `esm test` and `simulate` refused them (and the
    execution database's decimal text needed `float_columns`). Run the fixture stage, not only the
    RunSpec stage, after adding a source.
+
+## 137. When the reference merges inputs into a database the capture keeps, the guard compares the merged copy with what the model reads; settings it keeps nowhere are a declared table; a selection the model cannot answer is counted against the reference's own registry **[PLAN.md §7.3.86; F106-F108; all 14 NONROAD RunSpecs read 0 and their relations byte-identical]**
+
+1. **Count a selection against the reference's registry, not against the model's list.** "Not emitted"
+   alone would refuse what MOVES does not write either (benzene at rec-marine hose permeation). MOVES's own
+   `pollutantprocessassoc.isAffectedByNonroad`, at a process whose root (THC) NONROAD writes, separates what
+   MOVES writes from what it registers and never fills; `run_polProcessUnported` is the selections in that
+   set the model emits no row for.
+2. **The execution database is the merged input; compare it, table by table, with the source the document
+   reads.** The model reads the default database; MOVES read the merge of every user and domain database
+   over it. A row of the run's copy that is not a row of the model's source is something an input database
+   stated (tools/check-sources.py check 9). A table the reference REPLACES whole (a user nrFuelSupply) is
+   checked the other way too, at the run's keys. Compare at the stored precision -- here decimal text parsed
+   to the source's double was exactly equal on every capture -- before reaching for a tolerance.
+3. **Separate the reference's own rewrites from input before refusing.** DefaultDataMaker sweeps NULLs,
+   recalculates a derived column, fills a missing fuel with its default formulation and re-files subtypes;
+   PreAgg aggregates whole tables at state and nation scale. Normalize the first kind to what the model reads
+   and say why; skip what PreAgg rewrites and refuse an input database under it, which the rewrite hides.
+   Each normalization is a claim -- the subtype re-filing turned out to be one the model does not make (F108),
+   so it is refused where a run reaches it rather than normalized away.
+4. **Output settings MOVES keeps only in the RunSpec are §132's declared table.** One row, one column per
+   setting the aggregation reads for this domain, empty in the catalogue meaning "what the model emits";
+   a tool writes it from the XML and check-sources compares the two. Count one per departing setting.
+5. **What the reference always writes and the model never does is a reported number, not a refusal.**
+   MOVES writes MOVESActivityOutput for every NONROAD run whatever is selected; asserting it 0 would refuse
+   every verified run. `run_activityOutputRows` states its size, measured equal to the captures', and the
+   shape check prints it.

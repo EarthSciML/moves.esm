@@ -28,3 +28,7 @@ the default database at the run's keys (PLAN.md §7.3.45), and every NONROAD cap
 selects running exhaust with empty input databases. A table the model never reads
 gives the right answer on such a capture. A capture that checks a table must state it
 DIFFERENTLY from the default.
+
+**NONROAD status (2026-11-21, PLAN.md §7.3.86).** Every silent NONROAD item is now counted
+(`run_polProcessUnported`, `run_outputSettingUnported`, tools/check-sources.py checks 9 and 10) or reported
+(`run_activityOutputRows`); see gaps-nonroad.md §9.
